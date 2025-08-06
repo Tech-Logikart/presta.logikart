@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>LOGIKART - Carte des Prestataires</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+</head>
+<body>
+  <!-- Contenu de la page, réduit pour l'exemple -->
+  <header style="display: flex; flex-direction: column; align-items: center; padding: 20px;">
+    <img src="logikart-logo.png" alt="LOGIKART" style="height: 60px; margin-bottom: 10px;" />
+    <h1 style="text-align: center;">LOGIKART - Réseau de prestataires informatiques</h1>
+    <div id="burgerMenu">☰
+      <div id="menuDropdown" class="hidden">
+        <ul>
+          <li onclick="toggleProviderList()">📋 Prestataires</li>
+          <li onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
+          <li onclick="openReportForm()">📝 Imprimer rapport d’intervention</li>
+        </ul>
+      </div>
+    </div>
+  </header>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
