@@ -34,7 +34,98 @@
 
   <div id="map" style="width: 100%; height: 80vh;"></div>
 
+  <!-- Liste des prestataires -->
   <aside id="providerList" style="display: none;"></aside>
+
+  <!-- Formulaire modal d'ajout de prestataire -->
+  <div id="providerFormSection" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <form id="providerForm">
+        <h2>Ajouter un prestataire</h2>
+        <input type="text" id="companyName" placeholder="RAISON SOCIALE" required />
+        <input type="text" id="contactName" placeholder="NOM" required />
+        <input type="text" id="firstName" placeholder="PRÉNOM" required />
+        <input type="text" id="address" placeholder="ADRESSE POSTALE" required />
+        <input type="email" id="email" placeholder="ADRESSE EMAIL" required />
+        <input type="tel" id="phone" placeholder="N° DE TÉLÉPHONE" required />
+        <input type="number" id="rate" placeholder="Tarif heure HT (€)" step="0.01" required />
+        <input type="number" id="travelFees" placeholder="Frais de déplacement HT (€)" step="0.01" required />
+        <input type="text" id="totalCost" placeholder="Tarif total HT (€)" readonly />
+        <button type="submit">Enregistrer</button>
+        <button type="button" onclick="hideForm()">Annuler</button>
+      </form>
+      <script>
+        const rateInput = document.getElementById("rate");
+        const travelInput = document.getElementById("travelFees");
+        const totalInput = document.getElementById("totalCost");
+
+        function updateTotal() {
+          const rate = parseFloat(rateInput.value) || 0;
+          const travel = parseFloat(travelInput.value) || 0;
+          totalInput.value = (rate + travel).toFixed(2) + " €";
+        }
+
+        rateInput.addEventListener("input", updateTotal);
+        travelInput.addEventListener("input", updateTotal);
+      </script>
+    </div>
+  </div>
+
+  <!-- Rapport d’intervention LOGIKART -->
+  <div id="reportModal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <span class="close" onclick="closeReportForm()">×</span>
+      <form id="reportForm">
+        <img src="logikart-logo.png" alt="LOGIKART" class="logo" style="height: 60px;" />
+        <h2>Rapport d’intervention LOGIKART</h2>
+        <label for="ticket">Numéro de ticket :</label>
+        <input type="text" name="ticket" required />
+        <label for="interventionDate">Date d’intervention :</label>
+        <input type="date" name="interventionDate" required />
+        <label for="siteAddress">Adresse du site :</label>
+        <input type="text" name="siteAddress" required />
+        <label for="technician">Nom du technicien :</label>
+        <input type="text" name="technician" list="technicianList" required />
+        <datalist id="technicianList"></datalist>
+        <label for="todo">Travail à faire :</label>
+        <textarea name="todo" rows="6" required></textarea>
+        <label for="done">Travail effectué :</label>
+        <textarea name="done" rows="10" required></textarea>
+        <label for="start">Heure d’arrivée :</label>
+        <input type="time" name="start" required />
+        <label for="end">Heure de départ :</label>
+        <input type="time" name="end" required />
+        <label for="signTech">Signature du technicien :</label>
+        <input type="text" name="signTech" />
+        <label for="signClient">Signature du client :</label>
+        <input type="text" name="signClient" />
+        <div class="form-buttons">
+          <button type="button" onclick="generatePDF()">📄 Générer PDF</button>
+          <button type="button" onclick="closeReportForm()">❌ Fermer</button>
+        </div>
+      </form>
+      <div id="reportContent" style="display: none;"></div>
+    </div>
+  </div>
+
+  <!-- Fenêtre modale pour l'itinéraire -->
+  <div id="itineraryModal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <span class="close" onclick="closeItineraryModal()">×</span>
+      <h2>🧭 Calcul d'itinéraire</h2>
+      <form id="itineraryForm">
+        <label>Adresse de départ :</label>
+        <input type="text" id="startAddress" required />
+        <label>Adresse de destination :</label>
+        <input type="text" id="endAddress" required />
+        <div id="extraDestinations"></div>
+        <button type="button" onclick="addDestinationField()">➕ Ajouter une destination</button>
+        <button type="button" onclick="calculateRoute()">🚗 Calculer l’itinéraire</button>
+      </form>
+      <div id="routeResult" style="margin-top: 15px;"></div>
+      <button type="button" onclick="exportItineraryToPDF()" style="margin-top: 10px; display: none;" id="exportPdfBtn">📄 Exporter en PDF</button>
+    </div>
+  </div>
 
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -56,7 +147,7 @@
   <script src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
-  <!-- Script principal (doit venir après firebase) -->
+  <!-- Script JS complet -->
   <script src="script.js"></script>
 </body>
 </html>
