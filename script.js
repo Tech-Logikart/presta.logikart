@@ -1,4 +1,3 @@
-console.log("script.js chargé");
 
 // Firebase Firestore déjà initialisé dans index.html
 const db = firebase.firestore();
@@ -113,6 +112,42 @@ function editProvider(index) {
   document.getElementById("providerFormSection").style.display = "flex";
 }
 
+function searchNearest() {
+  alert("Fonction de recherche simulée (à compléter)");
+}
+
+function addProvider() {
+  document.getElementById("providerFormSection").style.display = "flex";
+}
+
+function hideForm() {
+  document.getElementById("providerForm").reset();
+  document.getElementById("providerFormSection").style.display = "none";
+  editingIndex = null;
+}
+
+function toggleProviderList() {
+  const list = document.getElementById("providerList");
+  list.style.display = list.style.display === "none" ? "block" : "none";
+}
+
+function openItineraryTool() {
+  alert("🧭 Outil d’itinéraire en cours de développement...");
+}
+
+function openReportForm() {
+  alert("📝 Outil de rapport en cours de développement...");
+}
+
+function generatePDF() {
+  alert("📄 Génération de PDF en cours...");
+}
+
+function exportItineraryToPDF() {
+  alert("📄 Export PDF itinéraire en cours...");
+}
+
+// Rendre les fonctions accessibles globalement (important pour GitHub Pages)
 window.searchNearest = searchNearest;
 window.addProvider = addProvider;
 window.hideForm = hideForm;
@@ -121,4 +156,3 @@ window.openItineraryTool = openItineraryTool;
 window.openReportForm = openReportForm;
 window.generatePDF = generatePDF;
 window.exportItineraryToPDF = exportItineraryToPDF;
-
