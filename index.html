@@ -1,0 +1,62 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>LOGIKART - Carte des Prestataires</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+</head>
+
+<body>
+  <header style="display: flex; flex-direction: column; align-items: center; padding: 20px;">
+    <img src="logikart-logo.png" alt="LOGIKART" style="height: 60px; margin-bottom: 10px;" />
+    <h1 style="text-align: center;">LOGIKART - Réseau de prestataires informatiques</h1>
+    <div id="burgerMenu">
+      ☰
+      <div id="menuDropdown" class="hidden">
+        <ul>
+          <li onclick="toggleProviderList()">📋 Prestataires</li>
+          <li onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
+          <li onclick="openReportForm()">📝 Imprimer rapport d’intervention</li>
+        </ul>
+      </div>
+    </div>
+  </header>
+
+  <section style="padding: 10px; display: flex; gap: 10px; justify-content: center;">
+    <input type="text" id="cityInput" placeholder="Ville" style="width: 250px; padding: 8px;" />
+    <button onclick="searchNearest()">Rechercher</button>
+    <button onclick="addProvider()">Ajouter un prestataire</button>
+  </section>
+
+  <div id="map" style="width: 100%; height: 80vh;"></div>
+
+  <aside id="providerList" style="display: none;"></aside>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyA59iB-7skqRFngoF24VkAHZMBSIonh7Ho",
+      authDomain: "lgk-presta.firebaseapp.com",
+      projectId: "lgk-presta",
+      storageBucket: "lgk-presta.firebasestorage.app",
+      messagingSenderId: "386610630784",
+      appId: "1:386610630784:web:015bb6c04156918d369665"
+    };
+    firebase.initializeApp(firebaseConfig);
+  </script>
+
+  <!-- Librairies PDF & Carte -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+  <!-- Script principal (doit venir après firebase) -->
+  <script src="script.js"></script>
+</body>
+</html>
