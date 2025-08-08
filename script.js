@@ -1,4 +1,14 @@
 
+// Initialisation de la carte Leaflet
+const map = L.map('map').setView([48.8566, 2.3522], 5);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap contributors'
+}).addTo(map);
+
+let markers = [];
+let editingIndex = null;
+
 // Firebase Firestore déjà initialisé dans index.html
 const db = firebase.firestore();
 
@@ -112,10 +122,6 @@ function editProvider(index) {
   document.getElementById("providerFormSection").style.display = "flex";
 }
 
-function searchNearest() {
-  alert("Fonction de recherche simulée (à compléter)");
-}
-
 function addProvider() {
   document.getElementById("providerFormSection").style.display = "flex";
 }
@@ -131,23 +137,27 @@ function toggleProviderList() {
   list.style.display = list.style.display === "none" ? "block" : "none";
 }
 
+function searchNearest() {
+  alert("🧭 Fonction de recherche à intégrer...");
+}
+
 function openItineraryTool() {
-  alert("🧭 Outil d’itinéraire en cours de développement...");
+  alert("🧭 Outil d’itinéraire à intégrer...");
 }
 
 function openReportForm() {
-  alert("📝 Outil de rapport en cours de développement...");
+  alert("📝 Rapport à intégrer...");
 }
 
 function generatePDF() {
-  alert("📄 Génération de PDF en cours...");
+  alert("📄 Génération de PDF à intégrer...");
 }
 
 function exportItineraryToPDF() {
-  alert("📄 Export PDF itinéraire en cours...");
+  alert("📄 Export PDF itinéraire à intégrer...");
 }
 
-// Rendre les fonctions accessibles globalement (important pour GitHub Pages)
+// Rendre les fonctions globales
 window.searchNearest = searchNearest;
 window.addProvider = addProvider;
 window.hideForm = hideForm;
@@ -156,3 +166,51 @@ window.openItineraryTool = openItineraryTool;
 window.openReportForm = openReportForm;
 window.generatePDF = generatePDF;
 window.exportItineraryToPDF = exportItineraryToPDF;
+
+// Initialisation au chargement
+document.addEventListener("DOMContentLoaded", () => {
+  loadProvidersFromLocalStorage();
+
+  const burger = document.getElementById("burgerMenu");
+  const dropdown = document.getElementById("menuDropdown");
+
+  burger.addEventListener("click", (e) => {
+    e.stopPropagation();
+    dropdown.classList.toggle("hidden");
+  });
+
+  document.addEventListener("click", () => {
+    dropdown.classList.add("hidden");
+  });
+});
+
+function clearMarkers() {
+  markers.forEach(marker => map.removeLayer(marker));
+  markers = [];
+}
+
+function loadProvidersFromLocalStorage() {
+  clearMarkers();
+  const providers = JSON.parse(localStorage.getItem("providers")) || [];
+  providers.forEach(provider => {
+    geocodeAndAddToMap(provider);
+  });
+  updateProviderList();
+}
+
+function geocodeAndAddToMap(provider) {
+  fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(provider.address)}`)
+    .then(response => response.json())
+    .then(data => {
+      if (data.length > 0) {
+        const { lat, lon } = data[0];
+        const marker = L.marker([lat, lon])
+          .addTo(map)
+          .bindPopup(`<strong>${provider.companyName}</strong><br>${provider.contactName}<br>${provider.email}<br>${provider.phone}`);
+        markers.push(marker);
+      }
+    })
+    .catch(error => {
+      console.error("Erreur de géocodage :", error);
+    });
+}
