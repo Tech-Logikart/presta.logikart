@@ -112,3 +112,13 @@ function editProvider(index) {
   editingIndex = index;
   document.getElementById("providerFormSection").style.display = "flex";
 }
+
+window.searchNearest = searchNearest;
+window.addProvider = addProvider;
+window.hideForm = hideForm;
+window.toggleProviderList = toggleProviderList;
+window.openItineraryTool = openItineraryTool;
+window.openReportForm = openReportForm;
+window.generatePDF = generatePDF;
+window.exportItineraryToPDF = exportItineraryToPDF;
+
