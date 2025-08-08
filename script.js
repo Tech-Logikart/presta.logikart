@@ -1,3 +1,4 @@
+console.log("script.js chargé");
 
 // Firebase Firestore déjà initialisé dans index.html
 const db = firebase.firestore();
