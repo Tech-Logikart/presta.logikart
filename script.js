@@ -26,7 +26,7 @@ function hideForm() {
 
 document.getElementById("providerForm")?.addEventListener("submit", handleFormSubmit);
 
-function handleFormSubmit(event) {
+async function handleFormSubmit(event) {
   event.preventDefault();
 
   const provider = {
@@ -41,23 +41,46 @@ function handleFormSubmit(event) {
     totalCost: document.getElementById("totalCost").value
   };
 
+  // Ecrit dans Firestore (cloud) + garde un cache local
   let providers = JSON.parse(localStorage.getItem("providers")) || [];
 
-  if (editingIndex !== null) {
-    providers[editingIndex] = provider;
-  } else {
-    providers.push(provider);
+  try {
+    if (editingIndex !== null) {
+      // Edition existante
+      const existing = providers[editingIndex];
+      const updated = { ...existing, ...provider };
+      providers[editingIndex] = updated;
+
+      if (existing?.id) {
+        await db.collection("prestataires").doc(existing.id).update(provider);
+      } else {
+        const docRef = await db.collection("prestataires").add(provider);
+        updated.id = docRef.id;
+      }
+    } else {
+      // Ajout
+      const docRef = await db.collection("prestataires").add(provider);
+      provider.id = docRef.id;
+      providers.push(provider);
+    }
+
+    localStorage.setItem("providers", JSON.stringify(providers));
+
+    // Ajoute le marqueur immédiatement + affiche la liste directement
+    geocodeAndAddToMap(provider);
+    updateProviderList();
+    const list = document.getElementById("providerList");
+    if (list) list.style.display = "block";
+    hideForm();
+  } catch (e) {
+    console.error("Erreur Firestore :", e);
+    alert("Impossible d’enregistrer sur le serveur. Réessaie plus tard.");
   }
-
-  localStorage.setItem("providers", JSON.stringify(providers));
-
-  clearMarkers();
-  loadProvidersFromLocalStorage();
-  hideForm();
 }
 
 // -- Affichage sur carte
 function geocodeAndAddToMap(provider) {
+  if (!provider?.address) return;
   fetch(`https://proxy-logikart.samir-mouheb.workers.dev/?url=${encodeURIComponent('https://nominatim.openstreetmap.org/search?format=json&q=' + provider.address)}`)
     .then(response => response.json())
     .then(data => {
@@ -179,18 +202,25 @@ function editProvider(index) {
   addProvider();
 }
 
-function deleteProvider(index) {
-  const providers = JSON.parse(localStorage.getItem("providers")) || [];
-  if (!confirm("Confirmer la suppression ?")) return;
-  providers.splice(index, 1);
-  localStorage.setItem("providers", JSON.stringify(providers));
-  clearMarkers();
-  loadProvidersFromLocalStorage();
+// --- Firestore temps réel
+function startRealtimeSync() {
+  if (!window.db) return console.error("Firestore non initialisé");
+  db.collection("prestataires").onSnapshot((snap) => {
+    const providers = [];
+    snap.forEach(doc => providers.push({ id: doc.id, ...doc.data() }));
+    localStorage.setItem("providers", JSON.stringify(providers));
+    clearMarkers();
+    providers.forEach(geocodeAndAddToMap);
+    updateProviderList();
+  }, (err) => {
+    console.error("onSnapshot error:", err);
+  });
 }
 
 // --- Menu / init
 document.addEventListener("DOMContentLoaded", () => {
-  loadProvidersFromLocalStorage();
+  loadProvidersFromLocalStorage();   // charge cache existant
+  startRealtimeSync();               // passe en temps réel
 
   const burger = document.getElementById("burgerMenu");
   const dropdown = document.getElementById("menuDropdown");
@@ -344,7 +374,6 @@ function generatePDF() {
     </div>
   `;
 
-  // ➤ Affichage temporaire pour html2pdf
   reportContent.style.display = "block";
 
   const opt = {
@@ -490,7 +519,7 @@ function exportItineraryToPDF() {
       <p><strong>Départ :</strong> ${start}</p>
       ${extras.map((dest, i) => `<p><strong>Étape ${i + 1} :</strong> ${dest}</p>`).join("")}
       <p><strong>Arrivée :</strong> ${end}</p>
-      <p style="margin-top:10px;">${distanceText.replace(/\\n/g, "<br>")}</p>
+      <p style="margin-top:10px;">${distanceText.replace(/\n/g, "<br>")}</p>
     `;
 
     if (window.lastRouteInstructions && window.lastRouteInstructions.length) {
@@ -531,4 +560,17 @@ window.openReportForm = openReportForm;
 window.closeReportForm = closeReportForm;
 window.generatePDF = generatePDF;
 window.editProvider = editProvider;
-window.deleteProvider = deleteProvider;
+window.deleteProvider = async function(index) {
+  const providers = JSON.parse(localStorage.getItem("providers")) || [];
+  if (!confirm("Confirmer la suppression ?")) return;
+  const toDelete = providers[index];
+  try {
+    if (toDelete?.id) {
+      await db.collection("prestataires").doc(toDelete.id).delete();
+    }
+  } catch (e) {
+    console.error("Erreur suppression Firestore :", e);
+    alert("Suppression côté serveur impossible.");
+  }
+};
+
