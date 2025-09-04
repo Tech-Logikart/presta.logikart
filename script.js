@@ -66,7 +66,7 @@ async function handleFormSubmit(event) {
 
     localStorage.setItem("providers", JSON.stringify(providers));
 
-    // Ajoute le marqueur immédiatement + affiche la liste directement
+    // Ajoute le marqueur immédiatement + affiche la liste
     geocodeAndAddToMap(provider);
     updateProviderList();
     const list = document.getElementById("providerList");
@@ -215,6 +215,21 @@ function startRealtimeSync() {
   }, (err) => {
     console.error("onSnapshot error:", err);
   });
+}
+
+// Force un rechargement depuis Firestore et réaffiche la carte + la liste
+async function refreshProvidersFromServer() {
+  try {
+    const snap = await db.collection("prestataires").get();
+    const providers = [];
+    snap.forEach(doc => providers.push({ id: doc.id, ...doc.data() }));
+    localStorage.setItem("providers", JSON.stringify(providers));
+    clearMarkers();
+    providers.forEach(geocodeAndAddToMap);
+    updateProviderList();
+  } catch (e) {
+    console.error("refreshProvidersFromServer error:", e);
+  }
 }
 
 // --- EXPORT JSON / CSV ---
@@ -450,6 +465,9 @@ async function handleImport() {
       results.errors++;
     }
   }
+
+  // >>> rafraîchit immédiatement la carte + liste avec les nouveaux prestataires
+  await refreshProvidersFromServer();
 
   alert(`Import terminé :
 - ${results.added} ajoutés
@@ -820,3 +838,10 @@ window.exportProviders = exportProviders;
 window.openImportModal = openImportModal;
 window.closeImportModal = closeImportModal;
 window.handleImport = handleImport;
+window.refreshProvidersFromServer = refreshProvidersFromServer;
+
+// --- Lancement
+document.addEventListener("DOMContentLoaded", () => {
+  loadProvidersFromLocalStorage();
+  startRealtimeSync();
+});
