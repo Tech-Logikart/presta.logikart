@@ -41,12 +41,10 @@ async function handleFormSubmit(event) {
     totalCost: document.getElementById("totalCost").value
   };
 
-  // Ecrit dans Firestore (cloud) + garde un cache local
   let providers = JSON.parse(localStorage.getItem("providers")) || [];
 
   try {
     if (editingIndex !== null) {
-      // Edition existante
       const existing = providers[editingIndex];
       const updated = { ...existing, ...provider };
       providers[editingIndex] = updated;
@@ -58,7 +56,6 @@ async function handleFormSubmit(event) {
         updated.id = docRef.id;
       }
     } else {
-      // Ajout
       const docRef = await db.collection("prestataires").add(provider);
       provider.id = docRef.id;
       providers.push(provider);
@@ -66,8 +63,8 @@ async function handleFormSubmit(event) {
 
     localStorage.setItem("providers", JSON.stringify(providers));
 
-    // Ajoute le marqueur immédiatement + affiche la liste
-    geocodeAndAddToMap(provider);
+    // Ajoute le marqueur immédiatement + met à jour la liste
+    geocodeAndAddToMap(provider, { pan: true, open: true });
     updateProviderList();
     const list = document.getElementById("providerList");
     if (list) list.style.display = "block";
@@ -78,23 +75,82 @@ async function handleFormSubmit(event) {
   }
 }
 
-// -- Affichage sur carte
-function geocodeAndAddToMap(provider) {
-  if (!provider?.address) return;
-  fetch(`https://proxy-logikart.samir-mouheb.workers.dev/?url=${encodeURIComponent('https://nominatim.openstreetmap.org/search?format=json&q=' + provider.address)}`)
-    .then(response => response.json())
-    .then(data => {
-      if (data.length > 0) {
-        const { lat, lon } = data[0];
-        const marker = L.marker([lat, lon])
-          .addTo(map)
-          .bindPopup(`<strong>${provider.companyName}</strong><br>${provider.contactName}<br>${provider.email}<br>${provider.phone}`);
-        markers.push(marker);
+// --- UTILITAIRES de géocodage ---
+// Essaie Nominatim via proxy puis en direct (avec UA)
+async function fetchNominatim(query) {
+  const proxyUrl = `https://proxy-logikart.samir-mouheb.workers.dev/?url=${encodeURIComponent('https://nominatim.openstreetmap.org/search?format=json&q=' + query)}`;
+  const directUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`;
+
+  // 1) Proxy
+  try {
+    const r = await fetch(proxyUrl);
+    if (r.ok) {
+      const data = await r.json();
+      if (Array.isArray(data) && data.length) return data;
+    }
+  } catch (_) {}
+
+  // 2) Direct
+  try {
+    const r2 = await fetch(directUrl, {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'LOGIKART/1.0 (contact@logikart.app)'
       }
-    })
-    .catch(error => {
-      console.error("Erreur de géocodage :", error);
     });
+    if (r2.ok) {
+      const data2 = await r2.json();
+      if (Array.isArray(data2) && data2.length) return data2;
+    }
+  } catch (_) {}
+
+  return [];
+}
+
+// Génère des variantes raisonnables pour améliorer les matches
+function buildQueries(addr) {
+  const base = (addr || "").trim();
+  const withCountry = /france/i.test(base) ? base : `${base}, France`;
+  const simple = withCountry.replace(/[;]/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  // Déplace "63000 Clermont-Ferrand" -> "Clermont-Ferrand 63000" si besoin
+  const moved = simple.replace(/(\d{5})\s+([A-Za-zÀ-ÿ\-']+)/, '$2 $1');
+  return [base, withCountry, simple, moved].filter((v, i, a) => v && a.indexOf(v) === i);
+}
+
+// -- Affichage sur carte (robuste, avec fallback) --
+async function geocodeAndAddToMap(provider, opts = { pan: false, open: false }) {
+  if (!provider?.address) return;
+
+  const queries = buildQueries(provider.address);
+  let result = null;
+
+  for (const q of queries) {
+    const data = await fetchNominatim(q);
+    if (data && data.length) { result = data[0]; break; }
+  }
+
+  if (!result) {
+    console.warn("Géocodage introuvable pour:", provider.address);
+    return;
+  }
+
+  const lat = parseFloat(result.lat);
+  const lon = parseFloat(result.lon);
+
+  const marker = L.marker([lat, lon])
+    .addTo(map)
+    .bindPopup(
+      `<strong>${provider.companyName || ''}</strong><br>${provider.contactName || ''}<br>${provider.email || ''}<br>${provider.phone || ''}`
+    );
+
+  markers.push(marker);
+
+  if (opts.pan) {
+    map.setView([lat, lon], Math.max(map.getZoom(), 14));
+  }
+  if (opts.open) {
+    marker.openPopup();
+  }
 }
 
 function clearMarkers() {
@@ -106,16 +162,15 @@ async function searchNearest() {
   const city = document.getElementById("cityInput").value.trim();
   if (!city) return;
 
-  const response = await fetch(`https://proxy-logikart.samir-mouheb.workers.dev/?url=${encodeURIComponent('https://nominatim.openstreetmap.org/search?format=json&q=' + city)}`);
-  const data = await response.json();
-
-  if (data.length === 0) {
+  // utilise le même fallback que ci-dessus
+  const cityData = await fetchNominatim(/france/i.test(city) ? city : `${city}, France`);
+  if (!cityData.length) {
     alert("Ville non trouvée.");
     return;
   }
 
-  const userLat = parseFloat(data[0].lat);
-  const userLon = parseFloat(data[0].lon);
+  const userLat = parseFloat(cityData[0].lat);
+  const userLon = parseFloat(cityData[0].lon);
 
   const providers = JSON.parse(localStorage.getItem("providers")) || [];
 
@@ -123,11 +178,10 @@ async function searchNearest() {
   let minDistance = Infinity;
 
   for (const provider of providers) {
-    const geo = await fetch(`https://proxy-logikart.samir-mouheb.workers.dev/?url=${encodeURIComponent('https://nominatim.openstreetmap.org/search?format=json&q=' + provider.address)}`).then(r => r.json());
-    if (geo.length === 0) continue;
-
-    const lat = parseFloat(geo[0].lat);
-    const lon = parseFloat(geo[0].lon);
+    const data = await fetchNominatim(provider.address || "");
+    if (!data.length) continue;
+    const lat = parseFloat(data[0].lat);
+    const lon = parseFloat(data[0].lon);
     const distance = Math.sqrt(Math.pow(lat - userLat, 2) + Math.pow(lon - userLon, 2));
 
     if (distance < minDistance) {
@@ -217,7 +271,7 @@ function startRealtimeSync() {
   });
 }
 
-// Force un rechargement depuis Firestore et réaffiche la carte + la liste
+// --- Force un rechargement complet depuis Firestore (après import) ---
 async function refreshProvidersFromServer() {
   try {
     const snap = await db.collection("prestataires").get();
@@ -300,7 +354,6 @@ function normalizeProvider(obj) {
     return isNaN(n) ? "" : n.toFixed(2);
   };
 
-  // Champs attendus
   const p = {
     companyName: norm(obj.companyName ?? obj.raisonSociale),
     contactName: norm(obj.contactName ?? obj.nom),
@@ -313,7 +366,6 @@ function normalizeProvider(obj) {
     totalCost: norm(obj.totalCost ?? obj.tarifTotalHT),
   };
 
-  // Si totalCost manquant mais rate+travel présents → calcule
   if (!p.totalCost) {
     const r = parseFloat(num(p.rate)) || 0;
     const t = parseFloat(num(p.travelFees)) || 0;
@@ -334,7 +386,6 @@ function parseCSVToObjects(text) {
   if (!lines.length) return [];
   const delimiter = detectDelimiter(lines[0]);
 
-  // Parse une ligne CSV, supporte les guillemets + quotes échappés
   function parseLine(line) {
     const out = [];
     let cur = "";
@@ -357,7 +408,6 @@ function parseCSVToObjects(text) {
 
   const headersRaw = parseLine(lines[0]).map(h => h.trim());
 
-  // map entêtes → clés attendues
   const normalizeKey = (k) => k
     .toLowerCase()
     .normalize("NFD").replace(/\p{Diacritic}/gu, "")
@@ -432,7 +482,6 @@ async function handleImport() {
   for (const raw of incoming) {
     const p = normalizeProvider(raw);
 
-    // Données minimales ?
     if (!p.companyName && !p.contactName && !p.email) {
       results.skipped++;
       continue;
@@ -446,13 +495,12 @@ async function handleImport() {
         await db.collection("prestataires").doc(existingMatch.id).update(p);
         results.updated++;
       } else if (raw.id) {
-        // Si un id Firestore est fourni et différent / inexistant localement
         try {
           await db.collection("prestataires").doc(raw.id).set(p, { merge: true });
           results.added++;
         } catch {
           const docRef = await db.collection("prestataires").add(p);
-          void docRef; // fallback
+          void docRef;
           results.added++;
         }
       } else {
@@ -466,7 +514,7 @@ async function handleImport() {
     }
   }
 
-  // >>> rafraîchit immédiatement la carte + liste avec les nouveaux prestataires
+  // Force le rafraîchissement pour afficher les marqueurs tout de suite
   await refreshProvidersFromServer();
 
   alert(`Import terminé :
@@ -480,8 +528,8 @@ async function handleImport() {
 
 // --- Menu / init
 document.addEventListener("DOMContentLoaded", () => {
-  loadProvidersFromLocalStorage();   // charge cache existant
-  startRealtimeSync();               // passe en temps réel
+  loadProvidersFromLocalStorage();
+  startRealtimeSync();
 
   const burger = document.getElementById("burgerMenu");
   const dropdown = document.getElementById("menuDropdown");
@@ -502,7 +550,7 @@ function toggleProviderList() {
   list.style.display = list.style.display === "none" ? "block" : "none";
 }
 
-// --- Rapport d’intervention (existant) ---
+// --- Rapport d’intervention ---
 function openReportForm() {
   const modal = document.getElementById("reportModal");
   if (!modal) return;
@@ -666,7 +714,7 @@ function populateTechnicianSuggestions() {
   });
 }
 
-// --- Itinéraire (existant) ---
+// --- Itinéraire ---
 function openItineraryTool() {
   const modal = document.getElementById("itineraryModal");
   if (!modal) return;
@@ -701,13 +749,7 @@ async function calculateRoute() {
   // Convertir adresses → coordonnées via Nominatim
   const coords = [];
   for (const address of points) {
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`, {
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'LOGIKART/1.0 (contact@logikart.app)'
-      }
-    });
-    const data = await res.json();
+    const data = await fetchNominatim(address);
     if (!data.length) {
       alert(`Adresse non trouvée : ${address}`);
       return;
@@ -807,7 +849,7 @@ function exportItineraryToPDF() {
   });
 }
 
-// --- Exposer au scope global (menu + boutons) ---
+// --- Exposer au scope global ---
 window.searchNearest = searchNearest;
 window.addProvider = addProvider;
 window.hideForm = hideForm;
@@ -839,9 +881,4 @@ window.openImportModal = openImportModal;
 window.closeImportModal = closeImportModal;
 window.handleImport = handleImport;
 window.refreshProvidersFromServer = refreshProvidersFromServer;
-
-// --- Lancement
-document.addEventListener("DOMContentLoaded", () => {
-  loadProvidersFromLocalStorage();
-  startRealtimeSync();
-});
+window.geocodeAndAddToMap = geocodeAndAddToMap;
