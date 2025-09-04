@@ -168,7 +168,7 @@ function updateProviderList() {
     div.className = "provider-entry";
     div.innerHTML = `
       <strong>${p.companyName}</strong><br>
-      👤 ${p.contactName}<br>
+      👤 ${p.contactName} ${p.firstName ? `(${p.firstName})` : ""}<br>
       📧 ${p.email}<br>
       📞 ${p.phone}<br>
       💰 Tarif total HT : ${p.totalCost || "N/A"}<br>
@@ -184,11 +184,11 @@ function editProvider(index) {
   const providers = JSON.parse(localStorage.getItem("providers")) || [];
   const p = providers[index];
 
-  document.getElementById("companyName").value = p.companyName;
-  document.getElementById("contactName").value = p.contactName;
-  document.getElementById("address").value = p.address;
-  document.getElementById("email").value = p.email;
-  document.getElementById("phone").value = p.phone;
+  document.getElementById("companyName").value = p.companyName || "";
+  document.getElementById("contactName").value = p.contactName || "";
+  document.getElementById("address").value = p.address || "";
+  document.getElementById("email").value = p.email || "";
+  document.getElementById("phone").value = p.phone || "";
   document.getElementById("firstName").value = p.firstName || "";
   document.getElementById("rate").value = p.rate || "";
   document.getElementById("travelFees").value = p.travelFees || "";
@@ -217,6 +217,249 @@ function startRealtimeSync() {
   });
 }
 
+// --- EXPORT JSON / CSV ---
+function exportProviders(format = "json") {
+  const providers = JSON.parse(localStorage.getItem("providers")) || [];
+  if (!providers.length) {
+    alert("Aucun prestataire à exporter.");
+    return;
+  }
+
+  const headers = ["id","companyName","contactName","firstName","address","email","phone","rate","travelFees","totalCost"];
+
+  if (format === "json") {
+    const blob = new Blob([JSON.stringify(providers, null, 2)], { type: "application/json" });
+    triggerDownload(blob, "prestataires.json");
+    return;
+  }
+
+  if (format === "csv") {
+    const escape = (v) => {
+      if (v === null || v === undefined) return "";
+      v = String(v);
+      return /[",\n\r;]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+    };
+
+    const rows = [headers.join(",")];
+    for (const p of providers) {
+      const row = headers.map(h => escape(p[h] ?? ""));
+      rows.push(row.join(","));
+    }
+    const csv = rows.join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    triggerDownload(blob, "prestataires.csv");
+    return;
+  }
+
+  alert("Format non supporté.");
+}
+
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// --- IMPORT JSON / CSV ---
+function openImportModal() {
+  const modal = document.getElementById("importModal");
+  if (modal) modal.style.display = "flex";
+}
+function closeImportModal() {
+  const modal = document.getElementById("importModal");
+  if (modal) modal.style.display = "none";
+  const input = document.getElementById("importFile");
+  if (input) input.value = "";
+}
+
+function normalizeProvider(obj) {
+  const norm = (s) => (s ?? "").toString().trim();
+  const num = (s) => {
+    if (s === null || s === undefined || s === "") return "";
+    const n = parseFloat(String(s).replace(",", "."));
+    return isNaN(n) ? "" : n.toFixed(2);
+  };
+
+  // Champs attendus
+  const p = {
+    companyName: norm(obj.companyName ?? obj.raisonSociale),
+    contactName: norm(obj.contactName ?? obj.nom),
+    firstName: norm(obj.firstName ?? obj.prenom),
+    address: norm(obj.address ?? obj.adresse),
+    email: norm(obj.email),
+    phone: norm(obj.phone ?? obj.telephone),
+    rate: norm(obj.rate ?? obj.tarifHeureHT),
+    travelFees: norm(obj.travelFees ?? obj.fraisDeplacementHT),
+    totalCost: norm(obj.totalCost ?? obj.tarifTotalHT),
+  };
+
+  // Si totalCost manquant mais rate+travel présents → calcule
+  if (!p.totalCost) {
+    const r = parseFloat(num(p.rate)) || 0;
+    const t = parseFloat(num(p.travelFees)) || 0;
+    if (r + t > 0) p.totalCost = (r + t).toFixed(2) + " €";
+  }
+
+  return p;
+}
+
+function detectDelimiter(headerLine) {
+  const comma = (headerLine.match(/,/g) || []).length;
+  const semi = (headerLine.match(/;/g) || []).length;
+  return semi > comma ? ";" : ",";
+}
+
+function parseCSVToObjects(text) {
+  const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").filter(l => l.length);
+  if (!lines.length) return [];
+  const delimiter = detectDelimiter(lines[0]);
+
+  // Parse une ligne CSV, supporte les guillemets + quotes échappés
+  function parseLine(line) {
+    const out = [];
+    let cur = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
+        else inQuotes = !inQuotes;
+      } else if (ch === delimiter && !inQuotes) {
+        out.push(cur);
+        cur = "";
+      } else {
+        cur += ch;
+      }
+    }
+    out.push(cur);
+    return out;
+  }
+
+  const headersRaw = parseLine(lines[0]).map(h => h.trim());
+
+  // map entêtes → clés attendues
+  const normalizeKey = (k) => k
+    .toLowerCase()
+    .normalize("NFD").replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, "")
+    .replace(/[^a-z0-9]/g, "");
+
+  const headerMap = {};
+  headersRaw.forEach((h, i) => {
+    const n = normalizeKey(h);
+    if (n.includes("raisonsociale") || n === "companyname") headerMap[i] = "companyName";
+    else if (n === "nom" || n === "contactname") headerMap[i] = "contactName";
+    else if (n === "prenom" || n === "firstname") headerMap[i] = "firstName";
+    else if (n.includes("adresse") || n === "address") headerMap[i] = "address";
+    else if (n.includes("email")) headerMap[i] = "email";
+    else if (n.includes("telephone") || n === "phone") headerMap[i] = "phone";
+    else if (n.includes("tarifheure") || n === "rate") headerMap[i] = "rate";
+    else if (n.includes("fraisdeplacement") || n === "travelfees") headerMap[i] = "travelFees";
+    else if (n.includes("tariftotal") || n === "totalcost") headerMap[i] = "totalCost";
+    else if (n === "id") headerMap[i] = "id";
+  });
+
+  const rows = [];
+  for (let li = 1; li < lines.length; li++) {
+    const cols = parseLine(lines[li]);
+    if (cols.length === 1 && cols[0].trim() === "") continue;
+    const obj = {};
+    cols.forEach((val, i) => {
+      const key = headerMap[i];
+      if (key) obj[key] = val.trim();
+    });
+    rows.push(obj);
+  }
+  return rows;
+}
+
+async function handleImport() {
+  const input = document.getElementById("importFile");
+  if (!input?.files?.length) {
+    alert("Choisis un fichier à importer.");
+    return;
+  }
+  const file = input.files[0];
+  const text = await file.text();
+
+  let incoming = [];
+  if (file.name.toLowerCase().endsWith(".json")) {
+    try {
+      const data = JSON.parse(text);
+      if (Array.isArray(data)) incoming = data;
+      else if (data && typeof data === "object") incoming = [data];
+    } catch (e) {
+      console.error(e);
+      alert("JSON invalide.");
+      return;
+    }
+  } else {
+    incoming = parseCSVToObjects(text);
+  }
+
+  if (!incoming.length) {
+    alert("Aucune donnée détectée.");
+    return;
+  }
+
+  const skipDuplicates = document.getElementById("skipDuplicates")?.checked ?? true;
+  const existing = JSON.parse(localStorage.getItem("providers")) || [];
+  const keyOf = (p) => (String(p.email || "").toLowerCase() + "|" + String(p.phone || ""));
+
+  const byKey = new Map(existing.map(p => [keyOf(p), p]));
+  const results = { added: 0, updated: 0, skipped: 0, errors: 0 };
+
+  for (const raw of incoming) {
+    const p = normalizeProvider(raw);
+
+    // Données minimales ?
+    if (!p.companyName && !p.contactName && !p.email) {
+      results.skipped++;
+      continue;
+    }
+
+    const existingMatch = byKey.get(keyOf(p));
+    try {
+      if (existingMatch && skipDuplicates) {
+        results.skipped++;
+      } else if (existingMatch?.id) {
+        await db.collection("prestataires").doc(existingMatch.id).update(p);
+        results.updated++;
+      } else if (raw.id) {
+        // Si un id Firestore est fourni et différent / inexistant localement
+        try {
+          await db.collection("prestataires").doc(raw.id).set(p, { merge: true });
+          results.added++;
+        } catch {
+          const docRef = await db.collection("prestataires").add(p);
+          void docRef; // fallback
+          results.added++;
+        }
+      } else {
+        const docRef = await db.collection("prestataires").add(p);
+        void docRef;
+        results.added++;
+      }
+    } catch (e) {
+      console.error("Import error:", e);
+      results.errors++;
+    }
+  }
+
+  alert(`Import terminé :
+- ${results.added} ajoutés
+- ${results.updated} mis à jour
+- ${results.skipped} ignorés
+- ${results.errors} erreurs`);
+
+  closeImportModal();
+}
+
 // --- Menu / init
 document.addEventListener("DOMContentLoaded", () => {
   loadProvidersFromLocalStorage();   // charge cache existant
@@ -241,7 +484,7 @@ function toggleProviderList() {
   list.style.display = list.style.display === "none" ? "block" : "none";
 }
 
-// --- Rapport d’intervention
+// --- Rapport d’intervention (existant) ---
 function openReportForm() {
   const modal = document.getElementById("reportModal");
   if (!modal) return;
@@ -405,7 +648,7 @@ function populateTechnicianSuggestions() {
   });
 }
 
-// --- Itinéraire
+// --- Itinéraire (existant) ---
 function openItineraryTool() {
   const modal = document.getElementById("itineraryModal");
   if (!modal) return;
@@ -546,7 +789,7 @@ function exportItineraryToPDF() {
   });
 }
 
-// --- Exposer au scope global (pour onclick HTML) ---
+// --- Exposer au scope global (menu + boutons) ---
 window.searchNearest = searchNearest;
 window.addProvider = addProvider;
 window.hideForm = hideForm;
@@ -573,4 +816,7 @@ window.deleteProvider = async function(index) {
     alert("Suppression côté serveur impossible.");
   }
 };
-
+window.exportProviders = exportProviders;
+window.openImportModal = openImportModal;
+window.closeImportModal = closeImportModal;
+window.handleImport = handleImport;
