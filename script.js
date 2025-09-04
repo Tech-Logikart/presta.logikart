@@ -107,14 +107,59 @@ async function fetchNominatim(query) {
   return [];
 }
 
-// Génère des variantes raisonnables pour améliorer les matches
+// Génère des variantes robustes (corrige "Font du Bac" -> "Fontaine-du-Bac", tirets, n° ter, etc.)
 function buildQueries(addr) {
   const base = (addr || "").trim();
-  const withCountry = /france/i.test(base) ? base : `${base}, France`;
-  const simple = withCountry.replace(/[;]/g, ' ').replace(/\s{2,}/g, ' ').trim();
-  // Déplace "63000 Clermont-Ferrand" -> "Clermont-Ferrand 63000" si besoin
-  const moved = simple.replace(/(\d{5})\s+([A-Za-zÀ-ÿ\-']+)/, '$2 $1');
-  return [base, withCountry, simple, moved].filter((v, i, a) => v && a.indexOf(v) === i);
+
+  // 1) Normalisations typographiques
+  let norm = base
+    // Corrige "Font du Bac" -> "Fontaine du Bac"
+    .replace(/\bFont\b(\s+du\s+Bac\b)/i, "Fontaine$1")
+    // Uniformise les tirets autour de "du"
+    .replace(/\bFontaine\s+du\s+Bac\b/i, "Fontaine-du-Bac")
+    // espaces multiples -> un seul
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  // 2) Ajoute ", France" si absent
+  const withCountry = /france/i.test(norm) ? norm : `${norm}, France`;
+
+  // 3) Variantes utiles : avec/sans tirets, sans numéro, “ter”
+  const parts = withCountry.split(",");
+  const streetCity = parts[0].trim(); // ex: "18 Rue de la Fontaine-du-Bac 63000 Clermont-Ferrand"
+  const rest = parts.slice(1).join(",").trim(); // "France" etc.
+
+  // extrait numéro + éventuel "ter"
+  const numMatch = streetCity.match(/\b(\d+)\s*(ter)?\b/i);
+  const hasNumber = !!numMatch;
+
+  const streetNoNum = streetCity.replace(/^\s*\d+\s*(ter)?\s*/i, "").trim();
+  const altHyphens = streetCity
+    .replace(/\bFontaine-?du-?Bac\b/i, "Fontaine du Bac")
+    .replace(/\s{2,}/g, " ");
+
+  const withTer = hasNumber && !/ter\b/i.test(streetCity)
+    ? streetCity.replace(/\b(\d+)\b/, "$1 ter")
+    : streetCity;
+
+  // 4) Inverser CP/Ville si l’utilisateur les a inversés
+  const moved = withCountry.replace(/(\d{5})\s+([A-Za-zÀ-ÿ\-']+)/, "$2 $1");
+
+  // Déclinaisons finales (ordre par agressivité décroissante)
+  const variants = [
+    withCountry,
+    `${altHyphens}, ${rest}`,
+    moved,
+    // sans numéro -> centroïde de la rue
+    `${streetNoNum} Clermont-Ferrand, France`,
+    // variante "avec ter"
+    `${withTer}, ${rest}`
+  ];
+
+  // déduplique + nettoie
+  return variants
+    .map(v => v.replace(/\s{2,}/g, " ").trim())
+    .filter((v, i, a) => v && a.indexOf(v) === i);
 }
 
 // -- Affichage sur carte (robuste, avec fallback) --
@@ -129,9 +174,12 @@ async function geocodeAndAddToMap(provider, opts = { pan: false, open: false }) 
     if (data && data.length) { result = data[0]; break; }
   }
 
+  // Repli: ville seule si tout a échoué (évite de "ne rien afficher")
   if (!result) {
     console.warn("Géocodage introuvable pour:", provider.address);
-    return;
+    const cityTry = await fetchNominatim("63000 Clermont-Ferrand, France");
+    if (!cityTry.length) return;
+    result = cityTry[0];
   }
 
   const lat = parseFloat(result.lat);
@@ -140,13 +188,17 @@ async function geocodeAndAddToMap(provider, opts = { pan: false, open: false }) 
   const marker = L.marker([lat, lon])
     .addTo(map)
     .bindPopup(
-      `<strong>${provider.companyName || ''}</strong><br>${provider.contactName || ''}<br>${provider.email || ''}<br>${provider.phone || ''}`
+      `<strong>${provider.companyName || ""}</strong><br>${provider.contactName || ""}<br>${provider.email || ""}<br>${provider.phone || ""}<br><em>${provider.address || ""}</em>`
     );
 
   markers.push(marker);
 
-  if (opts.pan) {
-    map.setView([lat, lon], Math.max(map.getZoom(), 14));
+  // centre et ouvre pour confirmer visuellement
+  map.setView([lat, lon], Math.max(map.getZoom(), 15));
+  marker.openPopup();
+
+  if (opts.pan && !isNaN(lat) && !isNaN(lon)) {
+    map.setView([lat, lon], Math.max(map.getZoom(), 15));
   }
   if (opts.open) {
     marker.openPopup();
@@ -746,10 +798,10 @@ async function calculateRoute() {
 
   const points = [start, ...extras, end];
 
-  // Convertir adresses → coordonnées via Nominatim
+  // Convertir adresses → coordonnées via Nominatim (fallback intégré)
   const coords = [];
   for (const address of points) {
-    const data = await fetchNominatim(address);
+    const data = await fetchNominatim(/france/i.test(address) ? address : `${address}, France`);
     if (!data.length) {
       alert(`Adresse non trouvée : ${address}`);
       return;
