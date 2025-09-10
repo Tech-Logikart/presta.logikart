@@ -9,6 +9,26 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 let markers = [];
 let editingIndex = null;
 
+// Filtre les rejets de promesse causés par des extensions Chrome (bruit console)
+window.addEventListener('unhandledrejection', (event) => {
+  const msg = String(event.reason || '');
+  if (msg.includes('A listener indicated an asynchronous response')) {
+    event.preventDefault();
+    console.debug('[Extension warning filtré]', msg);
+  }
+});
+
+// ✅ Garantit que l'Auth est prête avant d'écrire dans Firestore
+async function ensureAuth() {
+  try {
+    if (window.authReady) {
+      await window.authReady;
+    }
+  } catch (e) {
+    console.debug('[ensureAuth]', e);
+  }
+}
+
 // -- Formulaire prestataire
 function addProvider() {
   const modal = document.getElementById("providerFormSection");
@@ -28,6 +48,7 @@ document.getElementById("providerForm")?.addEventListener("submit", handleFormSu
 
 async function handleFormSubmit(event) {
   event.preventDefault();
+  await ensureAuth(); // ✅
 
   const provider = {
     companyName: document.getElementById("companyName").value,
@@ -51,6 +72,7 @@ async function handleFormSubmit(event) {
 
       if (existing?.id) {
         await db.collection("prestataires").doc(existing.id).update(provider);
+        updated.id = existing.id;
       } else {
         const docRef = await db.collection("prestataires").add(provider);
         updated.id = docRef.id;
@@ -88,7 +110,9 @@ async function fetchNominatim(query) {
       const data = await r.json();
       if (Array.isArray(data) && data.length) return data;
     }
-  } catch (_) {}
+  } catch (e) {
+    console.debug('[Nominatim proxy error]', e);
+  }
 
   // 2) Direct
   try {
@@ -102,54 +126,106 @@ async function fetchNominatim(query) {
       const data2 = await r2.json();
       if (Array.isArray(data2) && data2.length) return data2;
     }
-  } catch (_) {}
+  } catch (e) {
+    console.debug('[Nominatim direct error]', e);
+  }
 
-  return [];
+  return []; // Toujours retourner un tableau
 }
 
-// Génère des variantes raisonnables pour améliorer les matches
+// Génère des variantes robustes (corrige "Font du Bac" -> "Fontaine-du-Bac", tirets, n° ter, etc.)
 function buildQueries(addr) {
   const base = (addr || "").trim();
-  const withCountry = /france/i.test(base) ? base : `${base}, France`;
-  const simple = withCountry.replace(/[;]/g, ' ').replace(/\s{2,}/g, ' ').trim();
-  // Déplace "63000 Clermont-Ferrand" -> "Clermont-Ferrand 63000" si besoin
-  const moved = simple.replace(/(\d{5})\s+([A-Za-zÀ-ÿ\-']+)/, '$2 $1');
-  return [base, withCountry, simple, moved].filter((v, i, a) => v && a.indexOf(v) === i);
+
+  // 1) Normalisations typographiques
+  let norm = base
+    // Corrige "Font du Bac" -> "Fontaine du Bac"
+    .replace(/\bFont\b(\s+du\s+Bac\b)/i, "Fontaine$1")
+    // Uniformise les tirets autour de "du"
+    .replace(/\bFontaine\s+du\s+Bac\b/i, "Fontaine-du-Bac")
+    // espaces multiples -> un seul
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  // 2) Ajoute ", France" si absent
+  const withCountry = /france/i.test(norm) ? norm : `${norm}, France`;
+
+  // 3) Variantes utiles : avec/sans tirets, sans numéro, “ter”
+  const parts = withCountry.split(",");
+  const streetCity = parts[0].trim();
+  const rest = parts.slice(1).join(",").trim();
+
+  const numMatch = streetCity.match(/\b(\d+)\s*(ter)?\b/i);
+  const hasNumber = !!numMatch;
+
+  const streetNoNum = streetCity.replace(/^\s*\d+\s*(ter)?\s*/i, "").trim();
+  const altHyphens = streetCity
+    .replace(/\bFontaine-?du-?Bac\b/i, "Fontaine du Bac")
+    .replace(/\s{2,}/g, " ");
+
+  const withTer = hasNumber && !/ter\b/i.test(streetCity)
+    ? streetCity.replace(/\b(\d+)\b/, "$1 ter")
+    : streetCity;
+
+  const moved = withCountry.replace(/(\d{5})\s+([A-Za-zÀ-ÿ\-']+)/, "$2 $1");
+
+  const variants = [
+    withCountry,
+    `${altHyphens}, ${rest}`,
+    moved,
+    `${streetNoNum} Clermont-Ferrand, France`,
+    `${withTer}, ${rest}`
+  ];
+
+  return variants
+    .map(v => v.replace(/\s{2,}/g, " ").trim())
+    .filter((v, i, a) => v && a.indexOf(v) === i);
 }
 
 // -- Affichage sur carte (robuste, avec fallback) --
 async function geocodeAndAddToMap(provider, opts = { pan: false, open: false }) {
-  if (!provider?.address) return;
+  try {
+    if (!provider?.address) return;
 
-  const queries = buildQueries(provider.address);
-  let result = null;
+    const queries = buildQueries(provider.address);
+    let result = null;
 
-  for (const q of queries) {
-    const data = await fetchNominatim(q);
-    if (data && data.length) { result = data[0]; break; }
-  }
+    for (const q of queries) {
+      const data = await fetchNominatim(q);
+      if (data && data.length) { result = data[0]; break; }
+    }
 
-  if (!result) {
-    console.warn("Géocodage introuvable pour:", provider.address);
-    return;
-  }
+    // Repli: ville seule si tout a échoué
+    if (!result) {
+      console.warn("Géocodage introuvable pour:", provider.address);
+      const cityTry = await fetchNominatim("63000 Clermont-Ferrand, France");
+      if (!cityTry.length) return;
+      result = cityTry[0];
+    }
 
-  const lat = parseFloat(result.lat);
-  const lon = parseFloat(result.lon);
+    const lat = parseFloat(result.lat);
+    const lon = parseFloat(result.lon);
 
-  const marker = L.marker([lat, lon])
-    .addTo(map)
-    .bindPopup(
-      `<strong>${provider.companyName || ''}</strong><br>${provider.contactName || ''}<br>${provider.email || ''}<br>${provider.phone || ''}`
-    );
+    const marker = L.marker([lat, lon])
+      .addTo(map)
+      .bindPopup(
+        `<strong>${provider.companyName || ""}</strong><br>${provider.contactName || ""}<br>${provider.email || ""}<br>${provider.phone || ""}<br><em>${provider.address || ""}</em>`
+      );
 
-  markers.push(marker);
+    markers.push(marker);
 
-  if (opts.pan) {
-    map.setView([lat, lon], Math.max(map.getZoom(), 14));
-  }
-  if (opts.open) {
+    // centre et ouvre pour confirmer visuellement
+    map.setView([lat, lon], Math.max(map.getZoom(), 15));
     marker.openPopup();
+
+    if (opts.pan && !isNaN(lat) && !isNaN(lon)) {
+      map.setView([lat, lon], Math.max(map.getZoom(), 15));
+    }
+    if (opts.open) {
+      marker.openPopup();
+    }
+  } catch (e) {
+    console.error('[geocodeAndAddToMap error]', e);
   }
 }
 
@@ -162,7 +238,6 @@ async function searchNearest() {
   const city = document.getElementById("cityInput").value.trim();
   if (!city) return;
 
-  // utilise le même fallback que ci-dessus
   const cityData = await fetchNominatim(/france/i.test(city) ? city : `${city}, France`);
   if (!cityData.length) {
     alert("Ville non trouvée.");
@@ -223,8 +298,8 @@ function updateProviderList() {
     div.innerHTML = `
       <strong>${p.companyName}</strong><br>
       👤 ${p.contactName} ${p.firstName ? `(${p.firstName})` : ""}<br>
-      📧 ${p.email}<br>
-      📞 ${p.phone}<br>
+      📧 ${p.email || '—'}<br>
+      📞 ${p.phone || '—'}<br>
       💰 Tarif total HT : ${p.totalCost || "N/A"}<br>
       <button onclick="editProvider(${i})">✏️ Modifier</button>
       <button onclick="deleteProvider(${i})">🗑️ Supprimer</button>
@@ -472,6 +547,8 @@ async function handleImport() {
     return;
   }
 
+  await ensureAuth(); // ✅
+
   const skipDuplicates = document.getElementById("skipDuplicates")?.checked ?? true;
   const existing = JSON.parse(localStorage.getItem("providers")) || [];
   const keyOf = (p) => (String(p.email || "").toLowerCase() + "|" + String(p.phone || ""));
@@ -527,8 +604,9 @@ async function handleImport() {
 }
 
 // --- Menu / init
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   loadProvidersFromLocalStorage();
+  await ensureAuth();        // optionnel mais propre : démarre l'écoute une fois l'Auth prête
   startRealtimeSync();
 
   const burger = document.getElementById("burgerMenu");
@@ -740,62 +818,63 @@ function addDestinationField() {
 }
 
 async function calculateRoute() {
-  const start = document.getElementById("startAddress").value.trim();
-  const end = document.getElementById("endAddress").value.trim();
-  const extras = Array.from(document.getElementsByClassName("extra-destination")).map(input => input.value.trim()).filter(Boolean);
+  try {
+    const start = document.getElementById("startAddress").value.trim();
+    const end = document.getElementById("endAddress").value.trim();
+    const extras = Array.from(document.getElementsByClassName("extra-destination")).map(input => input.value.trim()).filter(Boolean);
 
-  const points = [start, ...extras, end];
+    const points = [start, ...extras, end];
 
-  // Convertir adresses → coordonnées via Nominatim
-  const coords = [];
-  for (const address of points) {
-    const data = await fetchNominatim(address);
-    if (!data.length) {
-      alert(`Adresse non trouvée : ${address}`);
+    const coords = [];
+    for (const address of points) {
+      const data = await fetchNominatim(/france/i.test(address) ? address : `${address}, France`);
+      if (!data.length) {
+        alert(`Adresse non trouvée : ${address}`);
+        return;
+      }
+      coords.push([parseFloat(data[0].lon), parseFloat(data[0].lat)]);
+    }
+
+    const orsRes = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ4YTg5NTg4NjE0OTQ5NjZhMDY3YzgxZjJjOGE3ODI3IiwiaCI6Im11cm11cjY0In0=',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        coordinates: coords,
+        language: "fr",
+        instructions: true
+      })
+    });
+
+    if (!orsRes.ok) {
+      alert("Erreur lors du calcul d’itinéraire.");
       return;
     }
-    coords.push([parseFloat(data[0].lon), parseFloat(data[0].lat)]); // ORS = [lon, lat]
+
+    const geojson = await orsRes.json();
+    window.lastRouteInstructions = geojson.features[0].properties.segments[0].steps.map((step, i) => {
+      return `${i + 1}. ${step.instruction} (${(step.distance / 1000).toFixed(2)} km)`;
+    });
+
+    if (window.routeLine) map.removeLayer(window.routeLine);
+    window.routeLine = L.geoJSON(geojson, { style: { color: "blue", weight: 4 } }).addTo(map);
+    map.fitBounds(window.routeLine.getBounds());
+
+    const summary = geojson.features[0].properties.summary;
+    const distanceKm = (summary.distance / 1000).toFixed(2);
+    const durationMin = Math.round(summary.duration / 60);
+
+    document.getElementById("routeResult").innerHTML = `
+      <p>📏 Distance totale : <strong>${distanceKm} km</strong></p>
+      <p>⏱️ Durée estimée : <strong>${durationMin} minutes</strong></p>
+    `;
+    document.getElementById("exportPdfBtn").style.display = "inline-block";
+  } catch (e) {
+    console.error('[calculateRoute error]', e);
+    alert("Une erreur est survenue pendant le calcul d’itinéraire.");
   }
-
-  // Appel à OpenRouteService
-  const orsRes = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson', {
-    method: 'POST',
-    headers: {
-      'Authorization': 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ4YTg5NTg4NjE0OTQ5NjZhMDY3YzgxZjJjOGE3ODI3IiwiaCI6Im11cm11cjY0In0=',
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      coordinates: coords,
-      language: "fr",
-      instructions: true
-    })
-  });
-
-  if (!orsRes.ok) {
-    alert("Erreur lors du calcul d’itinéraire.");
-    return;
-  }
-
-  const geojson = await orsRes.json();
-  // Instructions
-  window.lastRouteInstructions = geojson.features[0].properties.segments[0].steps.map((step, i) => {
-    return `${i + 1}. ${step.instruction} (${(step.distance / 1000).toFixed(2)} km)`;
-  });
-
-  // Affiche le trajet
-  if (window.routeLine) map.removeLayer(window.routeLine);
-  window.routeLine = L.geoJSON(geojson, { style: { color: "blue", weight: 4 } }).addTo(map);
-  map.fitBounds(window.routeLine.getBounds());
-
-  const summary = geojson.features[0].properties.summary;
-  const distanceKm = (summary.distance / 1000).toFixed(2);
-  const durationMin = Math.round(summary.duration / 60);
-
-  document.getElementById("routeResult").innerHTML = `
-    <p>📏 Distance totale : <strong>${distanceKm} km</strong></p>
-    <p>⏱️ Durée estimée : <strong>${durationMin} minutes</strong></p>
-  `;
-  document.getElementById("exportPdfBtn").style.display = "inline-block";
 }
 
 function exportItineraryToPDF() {
@@ -868,6 +947,7 @@ window.deleteProvider = async function(index) {
   if (!confirm("Confirmer la suppression ?")) return;
   const toDelete = providers[index];
   try {
+    await ensureAuth(); // ✅
     if (toDelete?.id) {
       await db.collection("prestataires").doc(toDelete.id).delete();
     }
