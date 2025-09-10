@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>LOGIKART - Carte des Prestataires</title>
+
   <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
@@ -15,17 +16,17 @@
     <h1 style="text-align: center;">LOGIKART - Réseau de prestataires informatiques</h1>
 
     <!-- Menu burger -->
-    <div id="burgerMenu">
+    <div id="burgerMenu" style="position: relative; user-select:none; cursor:pointer;">
       ☰
-      <div id="menuDropdown" class="hidden">
-        <ul>
-          <li onclick="toggleProviderList()">📋 Prestataires</li>
-          <li onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
-          <li onclick="openReportForm()">📝 Imprimer rapport d’intervention</li>
+      <div id="menuDropdown" class="hidden" style="position:absolute; top: 1.5rem; right:0; background:#fff; border:1px solid #eee; border-radius:8px; padding:6px 0; z-index:1000; min-width:220px;">
+        <ul style="list-style:none; margin:0; padding:0;">
+          <li style="padding:8px 12px; cursor:pointer;" onclick="toggleProviderList()">📋 Prestataires</li>
+          <li style="padding:8px 12px; cursor:pointer;" onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
+          <li style="padding:8px 12px; cursor:pointer;" onclick="openReportForm()">📝 Imprimer rapport d’intervention</li>
           <li style="border-top:1px solid #eee; margin:6px 0 0 0;"></li>
-          <li onclick="exportProviders('json')">⬇️ Exporter (JSON)</li>
-          <li onclick="exportProviders('csv')">⬇️ Exporter (CSV)</li>
-          <li onclick="openImportModal()">⬆️ Importer</li>
+          <li style="padding:8px 12px; cursor:pointer;" onclick="exportProviders('json')">⬇️ Exporter (JSON)</li>
+          <li style="padding:8px 12px; cursor:pointer;" onclick="exportProviders('csv')">⬇️ Exporter (CSV)</li>
+          <li style="padding:8px 12px; cursor:pointer;" onclick="openImportModal()">⬆️ Importer</li>
         </ul>
       </div>
     </div>
@@ -46,12 +47,12 @@
         <h2>Ajouter un prestataire</h2>
         <input type="text" id="companyName" placeholder="RAISON SOCIALE" required />
         <input type="text" id="contactName" placeholder="NOM" required />
-        <input type="text" id="firstName" placeholder="PRÉNOM" required />
+        <input type="text" id="firstName" placeholder="PRÉNOM" />
         <input type="text" id="address" placeholder="ADRESSE POSTALE" required />
-        <input type="email" id="email" placeholder="ADRESSE EMAIL" required />
-        <input type="tel" id="phone" placeholder="N° DE TÉLÉPHONE" required />
-        <input type="number" id="rate" placeholder="Tarif heure HT (€)" step="0.01" required />
-        <input type="number" id="travelFees" placeholder="Frais de déplacement HT (€)" step="0.01" required />
+        <input type="email" id="email" placeholder="ADRESSE EMAIL" />
+        <input type="tel" id="phone" placeholder="N° DE TÉLÉPHONE" />
+        <input type="number" id="rate" placeholder="Tarif heure HT (€)" step="0.01" />
+        <input type="number" id="travelFees" placeholder="Frais de déplacement HT (€)" step="0.01" />
         <input type="text" id="totalCost" placeholder="Tarif total HT (€)" readonly />
         <button type="submit">Enregistrer</button>
         <button type="button" onclick="hideForm()">Annuler</button>
@@ -81,26 +82,26 @@
       <form id="reportForm">
         <img src="logikart-logo.png" alt="LOGIKART" class="logo" style="height: 60px;" />
         <h2>Rapport d’intervention LOGIKART</h2>
-        <label for="ticket">Numéro de ticket :</label>
+        <label>Numéro de ticket :</label>
         <input type="text" name="ticket" required />
-        <label for="interventionDate">Date d’intervention :</label>
+        <label>Date d’intervention :</label>
         <input type="date" name="interventionDate" required />
-        <label for="siteAddress">Adresse du site :</label>
+        <label>Adresse du site :</label>
         <input type="text" name="siteAddress" required />
-        <label for="technician">Nom du technicien :</label>
+        <label>Nom du technicien :</label>
         <input type="text" name="technician" list="technicianList" required />
         <datalist id="technicianList"></datalist>
-        <label for="todo">Travail à faire :</label>
+        <label>Travail à faire :</label>
         <textarea name="todo" rows="6" required></textarea>
-        <label for="done">Travail effectué :</label>
+        <label>Travail effectué :</label>
         <textarea name="done" rows="10" required></textarea>
-        <label for="start">Heure d’arrivée :</label>
+        <label>Heure d’arrivée :</label>
         <input type="time" name="start" required />
-        <label for="end">Heure de départ :</label>
+        <label>Heure de départ :</label>
         <input type="time" name="end" required />
-        <label for="signTech">Signature du technicien :</label>
+        <label>Signature du technicien :</label>
         <input type="text" name="signTech" />
-        <label for="signClient">Signature du client :</label>
+        <label>Signature du client :</label>
         <input type="text" name="signClient" />
         <div class="form-buttons">
           <button type="button" onclick="generatePDF()">📄 Générer PDF</button>
@@ -135,9 +136,7 @@
     <div class="modal-content">
       <span class="close" onclick="closeImportModal()">×</span>
       <h2>↕️ Importer des prestataires</h2>
-      <p>Fichiers acceptés : <strong>JSON</strong> (tableau d’objets) ou <strong>CSV</strong> avec en-têtes :
-        <code>id,companyName,contactName,firstName,address,email,phone,rate,travelFees,totalCost</code>
-      </p>
+      <p>Fichiers acceptés : <strong>JSON</strong> ou <strong>CSV</strong> (entêtes : <code>id,companyName,contactName,firstName,address,email,phone,rate,travelFees,totalCost</code>)</p>
       <input type="file" id="importFile" accept=".json,.csv" />
       <label style="display:block; margin-top:8px;">
         <input type="checkbox" id="skipDuplicates" checked />
@@ -150,9 +149,13 @@
     </div>
   </div>
 
-  <!-- Firebase -->
+  <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <!-- ✅ Auth compat -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+
+  <!-- Initialisation Firebase + Auth anonyme -->
   <script>
     const firebaseConfig = {
       apiKey: "AIzaSyA59iB-7skqRFngoF24VkAHZMBSIonh7Ho",
@@ -164,9 +167,23 @@
     };
     firebase.initializeApp(firebaseConfig);
     window.db = firebase.firestore();
+
+    // ✅ Promesse résolue quand l'Auth anonyme est prête
+    window.authReady = new Promise((resolve) => {
+      firebase.auth().onAuthStateChanged((user) => {
+        if (user) {
+          console.log('[Auth] Anonyme connecté:', user.uid);
+          resolve(user);
+        } else {
+          firebase.auth().signInAnonymously()
+            .then((cred) => { console.log('[Auth] Connexion anonyme ok:', cred.user?.uid); resolve(cred.user); })
+            .catch((err) => { console.error('[Auth] Echec connexion anonyme:', err); resolve(null); });
+        }
+      });
+    });
   </script>
 
-  <!-- Librairies PDF & Carte -->
+  <!-- Librairies PDF & Rendu carte -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
