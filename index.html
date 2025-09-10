@@ -6,41 +6,45 @@
   <title>LOGIKART - Carte des Prestataires</title>
 
   <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="logikart-logo.png" />
+
+  <!-- Leaflet -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 </head>
 
 <body>
-  <header style="display: flex; flex-direction: column; align-items: center; padding: 20px;">
-    <img src="logikart-logo.png" alt="LOGIKART" style="height: 60px; margin-bottom: 10px;" />
-    <h1 style="text-align: center;">LOGIKART - Réseau de prestataires informatiques</h1>
+  <header style="display:flex; flex-direction:column; align-items:center; gap:10px; padding:16px;">
+    <img src="logikart-logo.png" alt="LOGIKART" style="height:60px;" />
+    <h1 style="text-align:center; margin:0;">LOGIKART - Réseau de prestataires informatiques</h1>
 
     <!-- Menu burger -->
-    <div id="burgerMenu" style="position: relative; user-select:none; cursor:pointer;">
+    <div id="burgerMenu" style="position:relative; user-select:none; cursor:pointer; font-size:20px;">
       ☰
-      <div id="menuDropdown" class="hidden" style="position:absolute; top: 1.5rem; right:0; background:#fff; border:1px solid #eee; border-radius:8px; padding:6px 0; z-index:1000; min-width:220px;">
+      <div id="menuDropdown"
+           style="display:none; position:absolute; top: 1.8rem; right:0; background:#fff; border:1px solid #eee; border-radius:8px; padding:6px 0; z-index:1000; min-width:240px; box-shadow:0 6px 20px rgba(0,0,0,.08);">
         <ul style="list-style:none; margin:0; padding:0;">
-          <li style="padding:8px 12px; cursor:pointer;" onclick="toggleProviderList()">📋 Prestataires</li>
-          <li style="padding:8px 12px; cursor:pointer;" onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
-          <li style="padding:8px 12px; cursor:pointer;" onclick="openReportForm()">📝 Imprimer rapport d’intervention</li>
+          <li style="padding:10px 14px; cursor:pointer;" onclick="toggleProviderList()">📋 Prestataires</li>
+          <li style="padding:10px 14px; cursor:pointer;" onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
+          <li style="padding:10px 14px; cursor:pointer;" onclick="openReportForm()">📝 Imprimer rapport d’intervention</li>
           <li style="border-top:1px solid #eee; margin:6px 0 0 0;"></li>
-          <li style="padding:8px 12px; cursor:pointer;" onclick="exportProviders('json')">⬇️ Exporter (JSON)</li>
-          <li style="padding:8px 12px; cursor:pointer;" onclick="exportProviders('csv')">⬇️ Exporter (CSV)</li>
-          <li style="padding:8px 12px; cursor:pointer;" onclick="openImportModal()">⬆️ Importer</li>
+          <li style="padding:10px 14px; cursor:pointer;" onclick="exportProviders('json')">⬇️ Exporter (JSON)</li>
+          <li style="padding:10px 14px; cursor:pointer;" onclick="exportProviders('csv')">⬇️ Exporter (CSV)</li>
+          <li style="padding:10px 14px; cursor:pointer;" onclick="openImportModal()">⬆️ Importer</li>
         </ul>
       </div>
     </div>
   </header>
 
-  <section style="padding: 10px; display: flex; gap: 10px; justify-content: center;">
-    <input type="text" id="cityInput" placeholder="Ville" style="width: 250px; padding: 8px;" />
+  <section style="padding: 10px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+    <input type="text" id="cityInput" placeholder="Ville" style="width: 260px; padding:8px; border:1px solid #ccc; border-radius:6px;" />
     <button onclick="searchNearest()">Rechercher</button>
     <button onclick="addProvider()">Ajouter un prestataire</button>
   </section>
 
-  <div id="map" style="width: 100%; height: 80vh;"></div>
+  <div id="map" style="width:100%; height:80vh;"></div>
 
-  <!-- Formulaire modal d'ajout / édition de prestataire -->
+  <!-- Formulaire modal d'ajout / édition -->
   <div id="providerFormSection" class="modal-overlay" style="display:none;">
     <div class="modal-content">
       <form id="providerForm">
@@ -54,8 +58,10 @@
         <input type="number" id="rate" placeholder="Tarif heure HT (€)" step="0.01" />
         <input type="number" id="travelFees" placeholder="Frais de déplacement HT (€)" step="0.01" />
         <input type="text" id="totalCost" placeholder="Tarif total HT (€)" readonly />
-        <button type="submit">Enregistrer</button>
-        <button type="button" onclick="hideForm()">Annuler</button>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="submit">Enregistrer</button>
+          <button type="button" onclick="hideForm()">Annuler</button>
+        </div>
       </form>
       <script>
         const rateInput = document.getElementById("rate");
@@ -73,14 +79,14 @@
   </div>
 
   <!-- Liste des prestataires -->
-  <aside id="providerList" style="display: none;"></aside>
+  <aside id="providerList" style="display:none;"></aside>
 
   <!-- Rapport d’intervention -->
-  <div id="reportModal" class="modal" style="display: none;">
+  <div id="reportModal" class="modal" style="display:none;">
     <div class="modal-content">
       <span class="close" onclick="closeReportForm()">×</span>
       <form id="reportForm">
-        <img src="logikart-logo.png" alt="LOGIKART" class="logo" style="height: 60px;" />
+        <img src="logikart-logo.png" alt="LOGIKART" class="logo" style="height:60px;" />
         <h2>Rapport d’intervention LOGIKART</h2>
         <label>Numéro de ticket :</label>
         <input type="text" name="ticket" required />
@@ -108,12 +114,12 @@
           <button type="button" onclick="closeReportForm()">❌ Fermer</button>
         </div>
       </form>
-      <div id="reportContent" style="display: none;"></div>
+      <div id="reportContent" style="display:none;"></div>
     </div>
   </div>
 
   <!-- Itinéraire -->
-  <div id="itineraryModal" class="modal" style="display: none;">
+  <div id="itineraryModal" class="modal" style="display:none;">
     <div class="modal-content">
       <span class="close" onclick="closeItineraryModal()">×</span>
       <h2>🧭 Calcul d'itinéraire</h2>
@@ -123,11 +129,13 @@
         <label>Adresse de destination :</label>
         <input type="text" id="endAddress" required />
         <div id="extraDestinations"></div>
-        <button type="button" onclick="addDestinationField()">➕ Ajouter une destination</button>
-        <button type="button" onclick="calculateRoute()">🚗 Calculer l’itinéraire</button>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" onclick="addDestinationField()">➕ Ajouter une destination</button>
+          <button type="button" onclick="calculateRoute()">🚗 Calculer l’itinéraire</button>
+        </div>
       </form>
-      <div id="routeResult" style="margin-top: 15px;"></div>
-      <button type="button" onclick="exportItineraryToPDF()" style="margin-top: 10px; display: none;" id="exportPdfBtn">📄 Exporter en PDF</button>
+      <div id="routeResult" style="margin-top:15px;"></div>
+      <button type="button" onclick="exportItineraryToPDF()" style="margin-top:10px; display:none;" id="exportPdfBtn">📄 Exporter en PDF</button>
     </div>
   </div>
 
@@ -142,7 +150,7 @@
         <input type="checkbox" id="skipDuplicates" checked />
         Ignorer les doublons (même email + téléphone)
       </label>
-      <div class="form-buttons" style="margin-top:12px;">
+      <div class="form-buttons" style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
         <button type="button" onclick="handleImport()">Importer</button>
         <button type="button" onclick="closeImportModal()">Annuler</button>
       </div>
@@ -152,7 +160,6 @@
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-  <!-- ✅ Auth compat -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 
   <!-- Initialisation Firebase + Auth anonyme -->
@@ -168,7 +175,7 @@
     firebase.initializeApp(firebaseConfig);
     window.db = firebase.firestore();
 
-    // ✅ Promesse résolue quand l'Auth anonyme est prête
+    // Auth anonyme – résolue quand prête (⚠️ activer "Anonymous" dans la console)
     window.authReady = new Promise((resolve) => {
       firebase.auth().onAuthStateChanged((user) => {
         if (user) {
@@ -183,7 +190,7 @@
     });
   </script>
 
-  <!-- Librairies PDF & Rendu carte -->
+  <!-- PDF & rendu carte -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
