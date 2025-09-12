@@ -21,14 +21,6 @@ header { position: relative; }
   right: 12px;
 }
 
-header {
-  background-color: var(--primary-dark);
-  color: white;
-  padding: 20px;
-  text-align: center;
-  box-shadow: var(--box-shadow);
-}
-
 h1 {
   font-size: 24px;
   margin: 0;
@@ -212,3 +204,4 @@ button:hover {
   position: relative;
 
 }
+
