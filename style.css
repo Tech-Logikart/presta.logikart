@@ -14,11 +14,12 @@ body {
   color: var(--text);
 }
 
-header { position: relative; }
-#burgerMenu {
-  position: absolute;
-  top: 12px;
-  right: 12px;
+header {
+  background-color: var(--primary-dark);
+  color: white;
+  padding: 20px;
+  text-align: center;
+  box-shadow: var(--box-shadow);
 }
 
 h1 {
@@ -204,4 +205,5 @@ button:hover {
   position: relative;
 
 }
+
 
