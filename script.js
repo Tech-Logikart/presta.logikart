@@ -1,5 +1,5 @@
-// --- LOGIKART / script.js ---
-// Initialisation de la carte
+// ======================= LOGIKART / script.js =======================
+// Carte Leaflet
 const map = L.map('map').setView([48.8566, 2.3522], 5);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '© OpenStreetMap contributors'
@@ -8,7 +8,7 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 let markers = [];
 let editingIndex = null;
 
-// Filtre le bruit console causé par certaines extensions Chrome
+// Filtre certains rejets (extensions Chrome bavardes)
 window.addEventListener('unhandledrejection', (event) => {
   const msg = String(event.reason || '');
   if (msg.includes('A listener indicated an asynchronous response')) {
@@ -17,13 +17,90 @@ window.addEventListener('unhandledrejection', (event) => {
   }
 });
 
-// ✅ Garantit que l'Auth est prête avant d'écrire dans Firestore
-async function ensureAuth() {
-  try { if (window.authReady) await window.authReady; }
-  catch (e) { console.debug('[ensureAuth]', e); }
-}
+// ----------------- Auth anonyme (fourni par index.html) -----------------
+async function ensureAuth() { try { if (window.authReady) await window.authReady; } catch {} }
 
-// ---------- Formulaire prestataire ----------
+// ----------------- Firestore ⇄ localStorage sync -----------------
+const LS_KEY = "providers";
+const keyOf = (p) => (String(p.email || "").toLowerCase() + "|" + String(p.phone || ""));
+
+const fireSync = {
+  online: false,
+
+  async boot() {
+    try {
+      await ensureAuth();                                // attend l’anonyme si activée
+      await db.collection("prestataires").limit(1).get(); // test permission/connexion
+      this.online = true;
+      await this.pullAll();                               // récupère tout dans le local
+      this.startRealtime();                               // écoute temps réel
+      console.log("[Sync] Firestore actif");
+    } catch (e) {
+      this.online = false;
+      console.warn("[Sync] Mode local uniquement :", e?.message || e);
+    }
+  },
+
+  async pullAll() {
+    const snap = await db.collection("prestataires").get();
+    const list = [];
+    snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+    localStorage.setItem(LS_KEY, JSON.stringify(list));
+    clearMarkers();
+    list.forEach(geocodeAndAddToMap);
+    updateProviderList();
+  },
+
+  async upsert(p) {
+    const list = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+    if (this.online) {
+      if (p.id) {
+        await db.collection("prestataires").doc(p.id).set(p, { merge: true });
+      } else {
+        const docRef = await db.collection("prestataires").add(p);
+        p.id = docRef.id;
+      }
+    } else {
+      console.debug("[Sync] upsert local-only (offline).");
+    }
+
+    let idx = -1;
+    if (p.id) idx = list.findIndex(x => x.id === p.id);
+    if (idx === -1) idx = list.findIndex(x => keyOf(x) === keyOf(p));
+    if (idx >= 0) list[idx] = { ...list[idx], ...p };
+    else list.push(p);
+
+    localStorage.setItem(LS_KEY, JSON.stringify(list));
+    return p;
+  },
+
+  async remove(p) {
+    const list = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+    if (this.online && p?.id) {
+      await db.collection("prestataires").doc(p.id).delete();
+    } else {
+      console.debug("[Sync] suppression locale uniquement (offline).");
+    }
+    const newList = list.filter(x => (p.id ? x.id !== p.id : keyOf(x) !== keyOf(p)));
+    localStorage.setItem(LS_KEY, JSON.stringify(newList));
+  },
+
+  startRealtime() {
+    db.collection("prestataires").onSnapshot((snap) => {
+      const list = [];
+      snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+      localStorage.setItem(LS_KEY, JSON.stringify(list));
+      clearMarkers();
+      list.forEach(geocodeAndAddToMap);
+      updateProviderList();
+    }, (err) => {
+      this.online = false;
+      console.warn("[Sync] onSnapshot error -> mode local:", err?.message || err);
+    });
+  }
+};
+
+// ----------------- Formulaire prestataire -----------------
 function addProvider() {
   const modal = document.getElementById("providerFormSection");
   if (!modal) return console.error("#providerFormSection introuvable");
@@ -41,7 +118,6 @@ document.getElementById("providerForm")?.addEventListener("submit", handleFormSu
 
 async function handleFormSubmit(event) {
   event.preventDefault();
-  await ensureAuth(); // ✅
 
   const provider = {
     companyName: document.getElementById("companyName").value,
@@ -55,48 +131,26 @@ async function handleFormSubmit(event) {
     totalCost: document.getElementById("totalCost").value
   };
 
-  let providers = JSON.parse(localStorage.getItem("providers")) || [];
-
   try {
-    if (editingIndex !== null) {
-      const existing = providers[editingIndex];
-      const updated = { ...existing, ...provider };
-      providers[editingIndex] = updated;
-      if (existing?.id) {
-        await db.collection("prestataires").doc(existing.id).update(provider);
-        updated.id = existing.id;
-      } else {
-        const docRef = await db.collection("prestataires").add(provider);
-        updated.id = docRef.id;
-      }
-    } else {
-      const docRef = await db.collection("prestataires").add(provider);
-      provider.id = docRef.id;
-      providers.push(provider);
-    }
-
-    localStorage.setItem("providers", JSON.stringify(providers));
-
-    geocodeAndAddToMap(provider, { pan: true, open: true });
+    const saved = await fireSync.upsert(provider);
+    geocodeAndAddToMap(saved, { pan: true, open: true });
     updateProviderList();
-    document.getElementById("providerList")?.style && (document.getElementById("providerList").style.display = "block");
+    const list = document.getElementById("providerList");
+    if (list) list.style.display = "block";
     hideForm();
   } catch (e) {
-    console.error("Erreur Firestore :", e);
-    alert("Impossible d’enregistrer sur le serveur. Réessaie plus tard.");
+    console.error("Erreur enregistrement:", e);
+    alert("Impossible d’enregistrer (vérifie Auth anonyme & règles Firestore).");
   }
 }
 
-// ---------- Géocodage ----------
+// ----------------- Géocodage (Nominatim robuste) -----------------
 async function fetchNominatim(query) {
-  // normalise les espaces
   const q = String(query || "").replace(/\s{2,}/g, " ").trim();
   const base = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1&accept-language=fr,en&q=';
-
   const proxyUrl  = `https://proxy-logikart.samir-mouheb.workers.dev/?url=${encodeURIComponent(base + encodeURIComponent(q))}`;
   const directUrl = base + encodeURIComponent(q);
 
-  // 1) Proxy
   try {
     const r = await fetch(proxyUrl);
     if (r.ok) {
@@ -105,7 +159,6 @@ async function fetchNominatim(query) {
     }
   } catch (e) { console.debug('[Nominatim proxy error]', e); }
 
-  // 2) Direct
   try {
     const r2 = await fetch(directUrl, {
       headers: { 'Accept': 'application/json', 'User-Agent': 'LOGIKART/1.0 (contact@logikart.app)' }
@@ -119,7 +172,6 @@ async function fetchNominatim(query) {
   return [];
 }
 
-// Variantes d'adresse (FR + international)
 function buildQueries(addr) {
   const src = (addr || "").trim();
 
@@ -129,7 +181,7 @@ function buildQueries(addr) {
     .replace(/\bFontaine\s+du\s+Bac\b/i, "Fontaine-du-Bac")
     .replace(/\s{2,}/g, " ").trim();
 
-  // Normalisation de pays/villes (traductions courantes pour Nominatim)
+  // Normalisations de pays/villes pour de meilleurs hits
   const repl = [
     [/Tchéquie/i, 'Czechia'],
     [/République tchèque/i, 'Czechia'],
@@ -143,7 +195,6 @@ function buildQueries(addr) {
 
   const withCountry = /(France|Spain|Czechia|United Kingdom|England)\b/i.test(norm) ? norm : `${norm}, France`;
 
-  // Variantes : swap CP/Ville, sans numéro, version “ter”
   const parts = withCountry.split(",");
   const streetCity = parts[0].trim();
   const rest = parts.slice(1).join(",").trim();
@@ -176,10 +227,8 @@ async function geocodeAndAddToMap(provider, opts = { pan: false, open: false }) 
       if (data && data.length) { result = data[0]; break; }
     }
 
-    // Repli: ville seule si tout a échoué
     if (!result) {
       console.warn("Géocodage introuvable pour:", provider.address);
-      // essaie d'extraire une ville / pays de l'adresse ou repli FR par défaut
       const fallbackCity = /([A-Za-zÀ-ÿ'\- ]+),?\s*(France|Spain|Czechia|United Kingdom|England)/i.exec(provider.address);
       const cityQ = fallbackCity ? `${fallbackCity[1].trim()}, ${fallbackCity[2]}` : 'France';
       const cityTry = await fetchNominatim(cityQ);
@@ -198,36 +247,31 @@ async function geocodeAndAddToMap(provider, opts = { pan: false, open: false }) 
 
     markers.push(marker);
 
-    // centre et ouvre pour confirmer visuellement
     const targetZoom = Math.max(map.getZoom(), 15);
     if (opts.pan || true) map.setView([lat, lon], targetZoom);
     if (opts.open || true) marker.openPopup();
-
   } catch (e) {
     console.error('[geocodeAndAddToMap error]', e);
   }
 }
 
 function clearMarkers() {
-  markers.forEach(marker => map.removeLayer(marker));
+  markers.forEach(m => map.removeLayer(m));
   markers = [];
 }
 
-// ---------- Recherche plus proche ----------
+// ----------------- Recherche de prestataire proche -----------------
 async function searchNearest() {
   const city = document.getElementById("cityInput").value.trim();
   if (!city) return;
 
   const cityData = await fetchNominatim(/(France|Spain|Czechia|United Kingdom|England)/i.test(city) ? city : `${city}, France`);
-  if (!cityData.length) {
-    alert("Ville non trouvée.");
-    return;
-  }
+  if (!cityData.length) { alert("Ville non trouvée."); return; }
 
   const userLat = parseFloat(cityData[0].lat);
   const userLon = parseFloat(cityData[0].lon);
 
-  const providers = JSON.parse(localStorage.getItem("providers")) || [];
+  const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
 
   let nearest = null;
   let minDistance = Infinity;
@@ -243,23 +287,23 @@ async function searchNearest() {
       nearest = { ...provider, lat, lon };
     }
   }
-  
+
   if (nearest) {
     map.setView([nearest.lat, nearest.lon], 12);
     L.popup()
       .setLatLng([nearest.lat, nearest.lon])
-      .setContent(`<strong>${nearest.companyName}</strong><br>${nearest.contactName}<br>${nearest.email || '—'}<br>${nearest.phone || '—'}`)
+      .setContent(`<strong>${nearest.companyName || '—'}</strong><br>${nearest.contactName || '—'}<br>${nearest.email || '—'}<br>${nearest.phone || '—'}`)
       .openOn(map);
   } else {
     alert("Aucun prestataire trouvé.");
   }
 }
 
-// ---------- Chargement & liste ----------
+// ----------------- Chargement & liste -----------------
 function loadProvidersFromLocalStorage() {
   clearMarkers();
-  const providers = JSON.parse(localStorage.getItem("providers")) || [];
-  providers.forEach(provider => geocodeAndAddToMap(provider));
+  const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+  providers.forEach(geocodeAndAddToMap);
   updateProviderList();
 }
 
@@ -268,7 +312,7 @@ function updateProviderList() {
   if (!container) return;
 
   container.innerHTML = "";
-  const providers = JSON.parse(localStorage.getItem("providers")) || [];
+  const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
 
   providers.forEach((p, i) => {
     const div = document.createElement("div");
@@ -290,7 +334,7 @@ function updateProviderList() {
 }
 
 function editProvider(index) {
-  const providers = JSON.parse(localStorage.getItem("providers")) || [];
+  const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
   const p = providers[index];
 
   document.getElementById("companyName").value = p.companyName || "";
@@ -304,48 +348,29 @@ function editProvider(index) {
   document.getElementById("totalCost").value = p.totalCost || "";
 
   if (typeof updateTotal === "function") updateTotal();
-
   editingIndex = index;
   addProvider();
 }
 
-// ---------- Firestore temps réel ----------
-function startRealtimeSync() {
-  if (!window.db) return console.error("Firestore non initialisé");
-  db.collection("prestataires").onSnapshot((snap) => {
-    const providers = [];
-    snap.forEach(doc => providers.push({ id: doc.id, ...doc.data() }));
-    localStorage.setItem("providers", JSON.stringify(providers));
-    clearMarkers();
-    providers.forEach(geocodeAndAddToMap);
-    updateProviderList();
-  }, (err) => {
-    console.error("onSnapshot error:", err);
-  });
-}
-
-// Force un rechargement complet depuis Firestore (après import)
-async function refreshProvidersFromServer() {
+window.deleteProvider = async function(index) {
+  const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+  if (!confirm("Confirmer la suppression ?")) return;
+  const toDelete = providers[index];
   try {
-    const snap = await db.collection("prestataires").get();
-    const providers = [];
-    snap.forEach(doc => providers.push({ id: doc.id, ...doc.data() }));
-    localStorage.setItem("providers", JSON.stringify(providers));
+    await fireSync.remove(toDelete);
     clearMarkers();
-    providers.forEach(geocodeAndAddToMap);
+    loadProvidersFromLocalStorage();
     updateProviderList();
   } catch (e) {
-    console.error("refreshProvidersFromServer error:", e);
+    console.error("Erreur suppression :", e);
+    alert("Suppression impossible (vérifie les règles Firestore).");
   }
-}
+};
 
-// ---------- Export ----------
+// ----------------- Export JSON/CSV -----------------
 function exportProviders(format = "json") {
-  const providers = JSON.parse(localStorage.getItem("providers")) || [];
-  if (!providers.length) {
-    alert("Aucun prestataire à exporter.");
-    return;
-  }
+  const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+  if (!providers.length) { alert("Aucun prestataire à exporter."); return; }
 
   const headers = ["id","companyName","contactName","firstName","address","email","phone","rate","travelFees","totalCost"];
 
@@ -360,13 +385,9 @@ function exportProviders(format = "json") {
       if (v === null || v === undefined) return "";
       v = String(v);
       return /[",\n\r;]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
-    };
-
+      };
     const rows = [headers.join(",")];
-    for (const p of providers) {
-      const row = headers.map(h => escape(p[h] ?? ""));
-      rows.push(row.join(","));
-    }
+    for (const p of providers) rows.push(headers.map(h => escape(p[h] ?? "")).join(","));
     const csv = rows.join("\r\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     triggerDownload(blob, "prestataires.csv");
@@ -379,25 +400,14 @@ function exportProviders(format = "json") {
 function triggerDownload(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
-// ---------- Import ----------
-function openImportModal() {
-  const modal = document.getElementById("importModal");
-  if (modal) modal.style.display = "flex";
-}
-function closeImportModal() {
-  const modal = document.getElementById("importModal");
-  if (modal) modal.style.display = "none";
-  const input = document.getElementById("importFile");
-  if (input) input.value = "";
-}
+// ----------------- Import JSON/CSV -> upsert Firestore -----------------
+function openImportModal() { const m = document.getElementById("importModal"); if (m) m.style.display = "flex"; }
+function closeImportModal() { const m = document.getElementById("importModal"); if (m) m.style.display = "none"; const i = document.getElementById("importFile"); if (i) i.value = ""; }
 
 function normalizeProvider(obj) {
   const norm = (s) => (s ?? "").toString().trim();
@@ -406,19 +416,18 @@ function normalizeProvider(obj) {
     const n = parseFloat(String(s).replace(",", "."));
     return isNaN(n) ? "" : n.toFixed(2);
   };
-
   const p = {
     companyName: norm(obj.companyName ?? obj.raisonSociale),
     contactName: norm(obj.contactName ?? obj.nom),
-    firstName: norm(obj.firstName ?? obj.prenom),
-    address: norm(obj.address ?? obj.adresse),
-    email: norm(obj.email),
-    phone: norm(obj.phone ?? obj.telephone),
-    rate: norm(obj.rate ?? obj.tarifHeureHT),
-    travelFees: norm(obj.travelFees ?? obj.fraisDeplacementHT),
-    totalCost: norm(obj.totalCost ?? obj.tarifTotalHT),
+    firstName:   norm(obj.firstName   ?? obj.prenom),
+    address:     norm(obj.address     ?? obj.adresse),
+    email:       norm(obj.email),
+    phone:       norm(obj.phone       ?? obj.telephone),
+    rate:        norm(obj.rate        ?? obj.tarifHeureHT),
+    travelFees:  norm(obj.travelFees  ?? obj.fraisDeplacementHT),
+    totalCost:   norm(obj.totalCost   ?? obj.tarifTotalHT),
+    id:          norm(obj.id)
   };
-
   if (!p.totalCost) {
     const r = parseFloat(num(p.rate)) || 0;
     const t = parseFloat(num(p.travelFees)) || 0;
@@ -429,7 +438,7 @@ function normalizeProvider(obj) {
 
 function detectDelimiter(headerLine) {
   const comma = (headerLine.match(/,/g) || []).length;
-  const semi = (headerLine.match(/;/g) || []).length;
+  const semi  = (headerLine.match(/;/g) || []).length;
   return semi > comma ? ";" : ",";
 }
 
@@ -439,32 +448,21 @@ function parseCSVToObjects(text) {
   const delimiter = detectDelimiter(lines[0]);
 
   function parseLine(line) {
-    const out = [];
-    let cur = "";
-    let inQuotes = false;
+    const out = []; let cur = ""; let inQuotes = false;
     for (let i = 0; i < line.length; i++) {
       const ch = line[i];
       if (ch === '"') {
         if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
         else inQuotes = !inQuotes;
-      } else if (ch === delimiter && !inQuotes) {
-        out.push(cur);
-        cur = "";
-      } else {
-        cur += ch;
-      }
+      } else if (ch === delimiter && !inQuotes) { out.push(cur); cur = ""; }
+      else { cur += ch; }
     }
     out.push(cur);
     return out;
   }
 
   const headersRaw = parseLine(lines[0]).map(h => h.trim());
-
-  const normalizeKey = (k) => k
-    .toLowerCase()
-    .normalize("NFD").replace(/\p{Diacritic}/gu, "")
-    .replace(/\s+/g, "")
-    .replace(/[^a-z0-9]/g, "");
+  const normalizeKey = (k) => k.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/\s+/g, "").replace(/[^a-z0-9]/g, "");
 
   const headerMap = {};
   headersRaw.forEach((h, i) => {
@@ -497,10 +495,7 @@ function parseCSVToObjects(text) {
 
 async function handleImport() {
   const input = document.getElementById("importFile");
-  if (!input?.files?.length) {
-    alert("Choisis un fichier à importer.");
-    return;
-  }
+  if (!input?.files?.length) { alert("Choisis un fichier à importer."); return; }
   const file = input.files[0];
   const text = await file.text();
 
@@ -508,59 +503,31 @@ async function handleImport() {
   if (file.name.toLowerCase().endsWith(".json")) {
     try {
       const data = JSON.parse(text);
-      if (Array.isArray(data)) incoming = data;
-      else if (data && typeof data === "object") incoming = [data];
-    } catch (e) {
-      console.error(e);
-      alert("JSON invalide.");
-      return;
-    }
+      incoming = Array.isArray(data) ? data : [data];
+    } catch (e) { console.error(e); alert("JSON invalide."); return; }
   } else {
     incoming = parseCSVToObjects(text);
   }
-
-  if (!incoming.length) {
-    alert("Aucune donnée détectée.");
-    return;
-  }
-
-  await ensureAuth(); // ✅
+  if (!incoming.length) { alert("Aucune donnée détectée."); return; }
 
   const skipDuplicates = document.getElementById("skipDuplicates")?.checked ?? true;
-  const existing = JSON.parse(localStorage.getItem("providers")) || [];
-  const keyOf = (p) => (String(p.email || "").toLowerCase() + "|" + String(p.phone || ""));
-
+  const existing = JSON.parse(localStorage.getItem(LS_KEY)) || [];
   const byKey = new Map(existing.map(p => [keyOf(p), p]));
   const results = { added: 0, updated: 0, skipped: 0, errors: 0 };
 
   for (const raw of incoming) {
     const p = normalizeProvider(raw);
+    if (!p.companyName && !p.contactName && !p.email) { results.skipped++; continue; }
 
-    if (!p.companyName && !p.contactName && !p.email) {
-      results.skipped++;
-      continue;
-    }
-
-    const existingMatch = byKey.get(keyOf(p));
+    const match = byKey.get(keyOf(p));
     try {
-      if (existingMatch && skipDuplicates) {
+      if (match && skipDuplicates) {
         results.skipped++;
-      } else if (existingMatch?.id) {
-        await db.collection("prestataires").doc(existingMatch.id).update(p);
-        results.updated++;
-      } else if (raw.id) {
-        try {
-          await db.collection("prestataires").doc(raw.id).set(p, { merge: true });
-          results.added++;
-        } catch {
-          const docRef = await db.collection("prestataires").add(p);
-          void docRef;
-          results.added++;
-        }
       } else {
-        const docRef = await db.collection("prestataires").add(p);
-        void docRef;
-        results.added++;
+        const merged = match ? { ...match, ...p, id: match.id } : p;
+        const saved = await fireSync.upsert(merged);
+        if (match) results.updated++; else results.added++;
+        byKey.set(keyOf(saved), saved);
       }
     } catch (e) {
       console.error("Import error:", e);
@@ -568,35 +535,29 @@ async function handleImport() {
     }
   }
 
-  await refreshProvidersFromServer();
+  if (fireSync.online) await fireSync.pullAll(); else { clearMarkers(); loadProvidersFromLocalStorage(); }
 
   alert(`Import terminé :
 - ${results.added} ajoutés
 - ${results.updated} mis à jour
 - ${results.skipped} ignorés
 - ${results.errors} erreurs`);
-
   closeImportModal();
 }
 
-// ---------- Menu / init ----------
+// ----------------- Menu / init -----------------
 document.addEventListener("DOMContentLoaded", async () => {
-  loadProvidersFromLocalStorage();
-  await ensureAuth();        // démarre l’écoute une fois l’Auth prête
-  startRealtimeSync();
+  loadProvidersFromLocalStorage();   // affichage immédiat
+  await fireSync.boot();             // tente la sync Firestore
 
   const burger = document.getElementById("burgerMenu");
   const dropdown = document.getElementById("menuDropdown");
-
   burger?.addEventListener("click", (e) => {
     e.stopPropagation();
     if (!dropdown) return;
     dropdown.style.display = (dropdown.style.display === "none" || !dropdown.style.display) ? "block" : "none";
   });
-
-  document.addEventListener("click", () => {
-    if (dropdown) dropdown.style.display = "none";
-  });
+  document.addEventListener("click", () => { if (dropdown) dropdown.style.display = "none"; });
 });
 
 function toggleProviderList() {
@@ -605,7 +566,7 @@ function toggleProviderList() {
   list.style.display = list.style.display === "none" ? "block" : "none";
 }
 
-// ---------- Rapport d’intervention ----------
+// ----------------- Rapport d’intervention (PDF) -----------------
 function openReportForm() {
   const modal = document.getElementById("reportModal");
   if (!modal) return;
@@ -668,16 +629,11 @@ function openReportForm() {
 
   populateTechnicianSuggestions();
 }
-
-function closeReportForm() {
-  const modal = document.getElementById("reportModal");
-  if (modal) modal.style.display = "none";
-}
+function closeReportForm() { const modal = document.getElementById("reportModal"); if (modal) modal.style.display = "none"; }
 
 function generatePDF() {
   const form = document.getElementById("reportForm");
   const get = id => form.querySelector(`[name="${id}"]`);
-
   const values = {
     ticket: get("ticket").value,
     date: get("interventionDate").value,
@@ -692,7 +648,6 @@ function generatePDF() {
   };
 
   const reportContent = document.getElementById("reportContent");
-
   reportContent.innerHTML = `
     <div style="font-family: Arial, sans-serif; padding: 20px; color: #000;">
       <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #004080; padding-bottom: 10px;">
@@ -728,7 +683,6 @@ function generatePDF() {
           <div style="border: 1px solid #ccc; height: 60px;"></div>
           <p style="text-align: center; margin-top: 5px;">${values.signTech}</p>
         </div>
-
         <div style="width: 48%;">
           <p><strong>Signature du client :</strong></p>
           <div style="border: 1px solid #ccc; height: 60px;"></div>
@@ -740,15 +694,13 @@ function generatePDF() {
 
   reportContent.style.display = "block";
 
-  const opt = {
+  html2pdf().set({
     margin: 0.5,
     filename: 'rapport_intervention_LOGIKART.pdf',
     image: { type: 'jpeg', quality: 0.98 },
     html2canvas: { scale: 2 },
     jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
-  };
-
-  html2pdf().set(opt).from(reportContent).save().then(() => {
+  }).from(reportContent).save().then(() => {
     reportContent.style.display = "none";
     form.reset();
     closeReportForm();
@@ -758,10 +710,8 @@ function generatePDF() {
 function populateTechnicianSuggestions() {
   const datalist = document.getElementById("technicianList");
   if (!datalist) return;
-
   datalist.innerHTML = "";
-  const providers = JSON.parse(localStorage.getItem("providers")) || [];
-
+  const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
   providers.forEach(p => {
     const option = document.createElement("option");
     option.value = `${p.firstName || ""} ${p.contactName || ""}`.trim();
@@ -769,44 +719,22 @@ function populateTechnicianSuggestions() {
   });
 }
 
-// ---------- Itinéraire ----------
-function openItineraryTool() {
-  const modal = document.getElementById("itineraryModal");
-  if (!modal) return;
-  modal.style.display = "flex";
-  document.getElementById("routeResult").innerHTML = "";
-}
-function closeItineraryModal() {
-  const modal = document.getElementById("itineraryModal");
-  if (!modal) return;
-  modal.style.display = "none";
-  document.getElementById("itineraryForm").reset();
-  document.getElementById("extraDestinations").innerHTML = "";
-}
-function addDestinationField() {
-  const container = document.getElementById("extraDestinations");
-  const input = document.createElement("input");
-  input.type = "text";
-  input.placeholder = "Destination supplémentaire";
-  input.classList.add("extra-destination");
-  container.appendChild(input);
-}
+// ----------------- Itinéraire -----------------
+function openItineraryTool() { const m = document.getElementById("itineraryModal"); if (m) m.style.display = "flex"; document.getElementById("routeResult").innerHTML = ""; }
+function closeItineraryModal() { const m = document.getElementById("itineraryModal"); if (m) m.style.display = "none"; document.getElementById("itineraryForm").reset(); document.getElementById("extraDestinations").innerHTML = ""; }
+function addDestinationField() { const c = document.getElementById("extraDestinations"); const i = document.createElement("input"); i.type = "text"; i.placeholder = "Destination supplémentaire"; i.classList.add("extra-destination"); c.appendChild(i); }
 
 async function calculateRoute() {
   try {
     const start = document.getElementById("startAddress").value.trim();
     const end = document.getElementById("endAddress").value.trim();
     const extras = Array.from(document.getElementsByClassName("extra-destination")).map(input => input.value.trim()).filter(Boolean);
-
     const points = [start, ...extras, end];
     const coords = [];
 
     for (const address of points) {
       const data = await fetchNominatim(/(France|Spain|Czechia|United Kingdom|England)/i.test(address) ? address : `${address}, France`);
-      if (!data.length) {
-        alert(`Adresse non trouvée : ${address}`);
-        return;
-      }
+      if (!data.length) { alert(`Adresse non trouvée : ${address}`); return; }
       coords.push([parseFloat(data[0].lon), parseFloat(data[0].lat)]); // ORS = [lon, lat]
     }
 
@@ -819,10 +747,7 @@ async function calculateRoute() {
       body: JSON.stringify({ coordinates: coords, language: "fr", instructions: true })
     });
 
-    if (!orsRes.ok) {
-      alert("Erreur lors du calcul d’itinéraire.");
-      return;
-    }
+    if (!orsRes.ok) { alert("Erreur lors du calcul d’itinéraire."); return; }
 
     const geojson = await orsRes.json();
     window.lastRouteInstructions = geojson.features[0].properties.segments[0].steps.map((step, i) =>
@@ -851,14 +776,13 @@ async function calculateRoute() {
 function exportItineraryToPDF() {
   const start = document.getElementById("startAddress").value.trim();
   const end = document.getElementById("endAddress").value.trim();
-  const extras = Array.from(document.getElementsByClassName("extra-destination"))
-    .map(input => input.value.trim()).filter(Boolean);
+  const extras = Array.from(document.getElementsByClassName("extra-destination")).map(i => i.value.trim()).filter(Boolean);
   const distanceText = document.querySelector("#routeResult").innerText;
 
   leafletImage(map, function (err, canvas) {
     if (err) { alert("Erreur lors du rendu de la carte."); return; }
-
     const mapImage = canvas.toDataURL("image/jpeg");
+
     const container = document.createElement("div");
     container.style.padding = "20px";
     container.style.fontFamily = "Arial";
@@ -885,35 +809,31 @@ function exportItineraryToPDF() {
   });
 }
 
-// ---------- Exposer au scope global ----------
+// ----------------- Expose au scope global -----------------
 window.searchNearest = searchNearest;
 window.addProvider = addProvider;
 window.hideForm = hideForm;
 window.toggleProviderList = toggleProviderList;
+
 window.openItineraryTool = openItineraryTool;
 window.closeItineraryModal = closeItineraryModal;
 window.addDestinationField = addDestinationField;
 window.calculateRoute = calculateRoute;
 window.exportItineraryToPDF = exportItineraryToPDF;
+
 window.openReportForm = openReportForm;
 window.closeReportForm = closeReportForm;
 window.generatePDF = generatePDF;
+
 window.editProvider = editProvider;
-window.deleteProvider = async function(index) {
-  const providers = JSON.parse(localStorage.getItem("providers")) || [];
-  if (!confirm("Confirmer la suppression ?")) return;
-  const toDelete = providers[index];
-  try {
-    await ensureAuth(); // ✅
-    if (toDelete?.id) await db.collection("prestataires").doc(toDelete.id).delete();
-  } catch (e) {
-    console.error("Erreur suppression Firestore :", e);
-    alert("Suppression côté serveur impossible.");
-  }
-};
+window.deleteProvider = window.deleteProvider; // déjà défini
 window.exportProviders = exportProviders;
 window.openImportModal = openImportModal;
 window.closeImportModal = closeImportModal;
 window.handleImport = handleImport;
-window.refreshProvidersFromServer = refreshProvidersFromServer;
-window.geocodeAndAddToMap = geocodeAndAddToMap;
+
+// --------------------------------------------------------------------
+// Rappel pour la prod GitHub Pages : ajoute dans Firebase > Auth > Domaines autorisés
+//   tech-logikart.github.io   (et localhost si besoin)
+// Active "Anonymous" et publie les "Rules" Firestore.
+// --------------------------------------------------------------------
