@@ -10,167 +10,48 @@
 
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <!-- (Optionnel) MarkerCluster CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
-
-  <style>
-    /* Header toujours visible et AU-DESSUS de la carte */
-    header {
-      position: sticky; top: 0; z-index: 3000;
-      background: #fff; padding: 16px 12px 8px;
-      display:flex; flex-direction:column; align-items:center; gap:10px;
-    }
-    /* Burger et menu au-dessus des panes Leaflet */
-    #burgerMenu{
-      position: absolute; top: 12px; right: 12px; z-index: 4001;
-      user-select:none; cursor:pointer; font-size:20px;
-      background:#fff; border:1px solid #eee; border-radius:8px;
-      padding:6px 10px; line-height:1; box-shadow:0 6px 20px rgba(0,0,0,.08);
-    }
-    #menuDropdown{
-      position:absolute; top:48px; right:12px; display:none; z-index:4000;
-      background:#fff; border:1px solid #eee; border-radius:8px;
-      padding:6px 0; min-width:240px; box-shadow:0 6px 20px rgba(0,0,0,.12);
-    }
-    #menuDropdown ul{ list-style:none; margin:0; padding:0; }
-    #menuDropdown li{ padding:10px 14px; cursor:pointer; }
-    #menuDropdown li.divider{ border-top:1px solid #eee; margin:6px 0 0 0; padding:0; }
-
-    body, html { height:100%; }
-    #map { width:100%; height:80vh; }
-    #providerList { display:none; max-height:50vh; overflow:auto; padding:12px; }
-    .modal, .modal-overlay {
-      display:none; position:fixed; inset:0; background:rgba(0,0,0,.4);
-      align-items:center; justify-content:center; z-index:2000;
-    }
-    .modal-content{
-      background:#fff; padding:16px; border-radius:12px;
-      max-width:720px; width:min(92vw,720px); max-height:85vh; overflow:auto;
-    }
-    .form-buttons{ display:flex; gap:8px; flex-wrap:wrap; }
-  </style>
 </head>
 
 <body>
-  <header>
-    <img src="logikart-logo.png" alt="LOGIKART" style="height:60px;" />
-    <h1 style="text-align:center; margin:0;">LOGIKART - Réseau de prestataires informatiques</h1>
+  <header style="position:relative; padding:20px; background:#004080; color:white; text-align:center;">
+    <!-- Logo + titre -->
+    <img src="logikart-logo.png" alt="LOGIKART" style="height:60px; margin-bottom:10px;" />
+    <h1 style="margin:0;">LOGIKART - Réseau de prestataires informatiques</h1>
 
     <!-- Menu burger -->
-    <div id="burgerMenu" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false" aria-controls="menuDropdown">☰</div>
-    <div id="menuDropdown">
-      <ul>
-        <li onclick="toggleProviderList()">📋 Prestataires</li>
-        <li onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
-        <li onclick="openReportForm()">📝 Imprimer rapport d’intervention</li>
-        <li class="divider"></li>
-        <li onclick="exportProviders('json')">⬇️ Exporter (JSON)</li>
-        <li onclick="exportProviders('csv')">⬇️ Exporter (CSV)</li>
-        <li onclick="openImportModal()">⬆️ Importer</li>
-      </ul>
+    <div id="burgerMenu" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false" aria-controls="menuDropdown">
+      ☰
+      <div id="menuDropdown" class="hidden">
+        <ul style="list-style:none; margin:0; padding:0;">
+          <li onclick="toggleProviderList()">📋 Prestataires</li>
+          <li onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
+          <li onclick="openReportForm()">📝 Imprimer rapport d’intervention</li>
+          <li style="border-top:1px solid #eee; margin:6px 0 0 0;"></li>
+          <li onclick="exportProviders('json')">⬇️ Exporter (JSON)</li>
+          <li onclick="exportProviders('csv')">⬇️ Exporter (CSV)</li>
+          <li onclick="openImportModal()">⬆️ Importer</li>
+        </ul>
+      </div>
     </div>
   </header>
 
+  <!-- Recherche -->
   <section style="padding:10px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
     <input type="text" id="cityInput" placeholder="Ville" style="width:260px; padding:8px; border:1px solid #ccc; border-radius:6px;" />
     <button onclick="searchNearest()">Rechercher</button>
     <button onclick="addProvider()">Ajouter un prestataire</button>
   </section>
 
-  <div id="map"></div>
+  <!-- Carte -->
+  <div id="map" style="width:100%; height:80vh;"></div>
 
-  <!-- Formulaire modal d'ajout / édition -->
-  <div id="providerFormSection" class="modal-overlay">
-    <div class="modal-content">
-      <form id="providerForm">
-        <h2>Ajouter un prestataire</h2>
-        <input type="text" id="companyName" placeholder="RAISON SOCIALE" required />
-        <input type="text" id="contactName" placeholder="NOM" required />
-        <input type="text" id="firstName" placeholder="PRÉNOM" />
-        <input type="text" id="address" placeholder="ADRESSE POSTALE" required />
-        <input type="email" id="email" placeholder="ADRESSE EMAIL" />
-        <input type="tel" id="phone" placeholder="N° DE TÉLÉPHONE" />
-        <input type="number" id="rate" placeholder="Tarif heure HT (€)" step="0.01" />
-        <input type="number" id="travelFees" placeholder="Frais de déplacement HT (€)" step="0.01" />
-        <input type="text" id="totalCost" placeholder="Tarif total HT (€)" readonly />
-        <div class="form-buttons">
-          <button type="submit">Enregistrer</button>
-          <button type="button" onclick="hideForm()">Annuler</button>
-        </div>
-      </form>
-      <script>
-        const rateInput = document.getElementById("rate");
-        const travelInput = document.getElementById("travelFees");
-        const totalInput = document.getElementById("totalCost");
-        function updateTotal(){ const r=parseFloat(rateInput.value)||0, t=parseFloat(travelInput.value)||0; totalInput.value=(r+t).toFixed(2)+' €'; }
-        rateInput.addEventListener("input", updateTotal);
-        travelInput.addEventListener("input", updateTotal);
-      </script>
-    </div>
-  </div>
+  <!-- Liste -->
+  <aside id="providerList" style="display:none;"></aside>
 
-  <!-- Liste des prestataires -->
-  <aside id="providerList"></aside>
-
-  <!-- Rapport d’intervention -->
-  <div id="reportModal" class="modal">
-    <div class="modal-content">
-      <span class="close" onclick="closeReportForm()">×</span>
-      <form id="reportForm">
-        <img src="logikart-logo.png" alt="LOGIKART" class="logo" style="height:60px;" />
-        <h2>Rapport d’intervention LOGIKART</h2>
-        <label>Numéro de ticket :</label>
-        <input type="text" name="ticket" required />
-        <label>Date d’intervention :</label>
-        <input type="date" name="interventionDate" required />
-        <label>Adresse du site :</label>
-        <input type="text" name="siteAddress" required />
-        <label>Nom du technicien :</label>
-        <input type="text" name="technician" list="technicianList" required />
-        <datalist id="technicianList"></datalist>
-        <label>Travail à faire :</label>
-        <textarea name="todo" rows="6" required></textarea>
-        <label>Travail effectué :</label>
-        <textarea name="done" rows="10" required></textarea>
-        <label>Heure d’arrivée :</label>
-        <input type="time" name="start" required />
-        <label>Heure de départ :</label>
-        <input type="time" name="end" required />
-        <label>Signature du technicien :</label>
-        <input type="text" name="signTech" />
-        <label>Signature du client :</label>
-        <input type="text" name="signClient" />
-        <div class="form-buttons">
-          <button type="button" onclick="printReport()">🖨️ Imprimer</button>
-          <button type="button" onclick="generatePDF()">📄 Générer PDF</button>
-          <button type="button" onclick="closeReportForm()">❌ Fermer</button>
-        </div>
-      </form>
-      <div id="reportContent" style="display:none;"></div>
-    </div>
-  </div>
-
-  <!-- Itinéraire -->
-  <div id="itineraryModal" class="modal">
-    <div class="modal-content">
-      <span class="close" onclick="closeItineraryModal()">×</span>
-      <h2>🧭 Calcul d'itinéraire</h2>
-      <form id="itineraryForm">
-        <label>Adresse de départ :</label>
-        <input type="text" id="startAddress" required />
-        <label>Adresse de destination :</label>
-        <input type="text" id="endAddress" required />
-        <div id="extraDestinations"></div>
-        <div class="form-buttons">
-          <button type="button" onclick="addDestinationField()">➕ Ajouter une étape</button>
-          <button type="button" onclick="calculateRoute()">🚗 Calculer l’itinéraire</button>
-        </div>
-      </form>
-      <div id="routeResult" style="margin-top:15px;"></div>
-      <button type="button" onclick="exportItineraryToPDF()" style="margin-top:10px; display:none;" id="exportPdfBtn">📄 Exporter en PDF</button>
-    </div>
-  </div>
+  <!-- Modals (formulaire prestataire, rapport, itinéraire, import) -->
+  <!-- ... conserve les blocs modaux que tu avais déjà, inchangés ... -->
 
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -179,10 +60,9 @@
 
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-  <!-- (Optionnel) MarkerCluster JS -->
   <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
 
-  <!-- Initialisation Firebase + Auth anonyme -->
+  <!-- Firebase init -->
   <script>
     const firebaseConfig = {
       apiKey: "AIzaSyA59iB-7skqRFngoF24VkAHZMBSIonh7Ho",
@@ -197,25 +77,20 @@
     const auth = firebase.auth();
     window.db = db;
 
-    // Promise utilisée par script.js pour attendre l'auth anonyme
     window.authReady = (async () => {
       try {
         if (auth.setPersistence) {
           await auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
         }
-      } catch (e) {
-        console.warn("[Auth] setPersistence:", e?.message || e);
-      }
+      } catch (e) { console.warn("[Auth] setPersistence:", e?.message || e); }
       try {
         await auth.signInAnonymously();
         console.log("[Auth] Connecté anonymement");
-      } catch (e) {
-        console.warn("[Auth] Echec connexion anonyme:", e);
-      }
+      } catch (e) { console.warn("[Auth] Echec connexion anonyme:", e); }
     })();
   </script>
 
-  <!-- PDF & rendu carte -->
+  <!-- Librairies PDF -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
@@ -223,32 +98,18 @@
   <!-- Script principal -->
   <script src="script.js"></script>
 
-  <!-- Gestion du burger (clic + clavier + fermeture extérieure) -->
+  <!-- Gestion du burger -->
   <script>
     (function () {
       const burger = document.getElementById('burgerMenu');
       const dropdown = document.getElementById('menuDropdown');
-
-      function closeMenu() {
-        dropdown.style.display = 'none';
-        burger.setAttribute('aria-expanded', 'false');
-      }
-      function toggleMenu(e) {
-        e?.stopPropagation();
-        const open = dropdown.style.display === 'block';
-        dropdown.style.display = open ? 'none' : 'block';
-        burger.setAttribute('aria-expanded', String(!open));
-      }
-
+      function closeMenu(){ dropdown.style.display='none'; burger.setAttribute('aria-expanded','false'); }
+      function toggleMenu(e){ e?.stopPropagation(); const open=dropdown.style.display==='block'; dropdown.style.display=open?'none':'block'; burger.setAttribute('aria-expanded', String(!open)); }
       burger.addEventListener('click', toggleMenu);
-      burger.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleMenu(e); }
-      });
-      document.addEventListener('click', (e) => {
-        if (!dropdown.contains(e.target) && e.target !== burger) closeMenu();
-      });
-      dropdown.addEventListener('click', (e) => e.stopPropagation());
-      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+      burger.addEventListener('keydown',(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggleMenu(e);} });
+      document.addEventListener('click',(e)=>{ if(!dropdown.contains(e.target)&&e.target!==burger) closeMenu(); });
+      dropdown.addEventListener('click',(e)=>e.stopPropagation());
+      document.addEventListener('keydown',(e)=>{ if(e.key==='Escape') closeMenu(); });
     })();
   </script>
 </body>
