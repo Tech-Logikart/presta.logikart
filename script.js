@@ -5,7 +5,59 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '© OpenStreetMap contributors'
 }).addTo(map);
 
-let markers = [];
+// ---------- Marqueurs performants (index + layer + cluster optionnel) ----------
+let markerIndex = new Map(); // key -> { marker, data }
+let markerLayer;
+if (L.markerClusterGroup) {
+  markerLayer = L.markerClusterGroup({ chunkedLoading: true });
+} else {
+  markerLayer = L.layerGroup();
+}
+map.addLayer(markerLayer);
+
+function markerKey(p) {
+  return p.id || (String(p.email || '').toLowerCase() + '|' + String(p.phone || ''));
+}
+
+function createMarker(p) {
+  const m = L.marker([p.lat, p.lon]).bindPopup(
+    `<strong>${p.companyName || ""}</strong><br>${p.contactName || ""}<br>${p.email || ""}<br>${p.phone || ""}<br><em>${p.address || ""}</em>`
+  );
+  markerLayer.addLayer(m);
+  markerIndex.set(markerKey(p), { marker: m, data: p });
+  return m;
+}
+function upsertMarker(p) {
+  const key = markerKey(p);
+  const existing = markerIndex.get(key);
+  if (existing) {
+    markerLayer.removeLayer(existing.marker);
+    markerIndex.delete(key);
+  }
+  return createMarker(p);
+}
+function removeMarkerByKey(key) {
+  const entry = markerIndex.get(key);
+  if (entry) {
+    markerLayer.removeLayer(entry.marker);
+    markerIndex.delete(key);
+  }
+}
+function clearMarkers() {
+  markerLayer.clearLayers();
+  markerIndex.clear();
+}
+
+function fitMapToAllMarkers() {
+  const allLayers = markerLayer.getLayers();
+  if (allLayers.length > 0) {
+    const group = L.featureGroup(allLayers);
+    map.fitBounds(group.getBounds().pad(0.1));
+  } else {
+    map.setView([54, 15], 4);
+  }
+}
+
 let editingIndex = null;
 
 // Filtre certains rejets (extensions Chrome bavardes)
@@ -24,16 +76,6 @@ async function ensureAuth() { try { if (window.authReady) await window.authReady
 const LS_KEY = "providers";
 const keyOf = (p) => (String(p.email || "").toLowerCase() + "|" + String(p.phone || ""));
 
-function fitMapToAllMarkers() {
-  if (markers.length > 0) {
-    const group = L.featureGroup(markers);
-    map.fitBounds(group.getBounds().pad(0.1));
-  } else {
-    // repli = Europe
-    map.setView([54, 15], 4);
-  }
-}
-
 const fireSync = {
   online: false,
 
@@ -43,7 +85,7 @@ const fireSync = {
       await db.collection("prestataires").limit(1).get(); // test permission/connexion
       this.online = true;
       await this.pullAll();                               // récupère tout dans le local
-      this.startRealtime();                               // écoute temps réel
+      this.startRealtime();                               // écoute temps réel (diff)
       console.log("[Sync] Firestore actif");
     } catch (e) {
       this.online = false;
@@ -56,10 +98,22 @@ const fireSync = {
     const list = [];
     snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
     localStorage.setItem(LS_KEY, JSON.stringify(list));
+
+    // Chargement initial en lots (sans géocoder)
     clearMarkers();
-    list.forEach(p => geocodeAndAddToMap(p, { pan: false, open: false }));
-    fitMapToAllMarkers();
-    updateProviderList();
+    const providers = list.filter(p => p.lat != null && p.lon != null);
+    let i = 0, CHUNK = 200;
+    function addChunk() {
+      const end = Math.min(i + CHUNK, providers.length);
+      for (; i < end; i++) upsertMarker(providers[i]);
+      if (i < providers.length) {
+        requestAnimationFrame(addChunk);
+      } else {
+        fitMapToAllMarkers();
+        updateProviderList();
+      }
+    }
+    requestAnimationFrame(addChunk);
   },
 
   async upsert(p) {
@@ -110,12 +164,33 @@ const fireSync = {
 
   startRealtime() {
     db.collection("prestataires").onSnapshot((snap) => {
+      const pendingFit = { added: 0 };
+
+      // 🔁 Diff incrémental
+      snap.docChanges().forEach(change => {
+        const p = { id: change.doc.id, ...change.doc.data() };
+
+        // ne pas géocoder ici → on affiche seulement si coords présentes
+        if (p.lat == null || p.lon == null) return;
+
+        const key = markerKey(p);
+        if (change.type === "added") {
+          upsertMarker(p);
+          pendingFit.added++;
+        } else if (change.type === "modified") {
+          upsertMarker(p);
+        } else if (change.type === "removed") {
+          removeMarkerByKey(key);
+        }
+      });
+
+      // miroir local
       const list = [];
       snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
       localStorage.setItem(LS_KEY, JSON.stringify(list));
-      clearMarkers();
-      list.forEach(p => geocodeAndAddToMap(p, { pan: false, open: false }));
-      fitMapToAllMarkers();
+
+      // recentre seulement s'il y a de nouvelles entrées
+      if (pendingFit.added > 0) fitMapToAllMarkers();
       updateProviderList();
     }, (err) => {
       this.online = false;
@@ -165,7 +240,7 @@ function normalizeIntlAddress(raw) {
   s = s.replace(/\bItalie\b/i, "Italy")
        .replace(/\bItalia\b/i, "Italy")
        .replace(/\bMilano\b/i, "Milan")
-       .replace(/\b MI\b/g, ""); // enlève " MI" province (s'il est séparé)
+       .replace(/\b MI\b/g, ""); // enlève " MI" (province) s'il est séparé
 
   // Tchéquie
   s = s.replace(/\bTchéquie\b/i, "Czechia")
@@ -180,7 +255,7 @@ function normalizeIntlAddress(raw) {
   s = s.replace(/\bRoyaume-Uni\b/i, "United Kingdom")
        .replace(/\bAngleterre\b/i, "England");
 
-  // Cas FR (Fontaine-du-Bac)
+  // France (Fontaine-du-Bac)
   s = s.replace(/\bFont\b(\s+du\s+Bac\b)/i, "Fontaine$1")
        .replace(/\bFontaine\s+du\s+Bac\b/i, "Fontaine-du-Bac");
 
@@ -238,7 +313,6 @@ async function fetchNominatim(query) {
 
 function buildQueries(addr) {
   const src = normalizeIntlAddress(addr || "");
-
   let norm = src;
 
   // Ajoute pays par défaut si absent
@@ -295,24 +369,12 @@ async function geocodeAndAddToMap(provider, opts = { pan: false, open: false }) 
       provider.lat = lat; provider.lon = lon; // enrichit en mémoire
     }
 
-    const marker = L.marker([lat, lon])
-      .addTo(map)
-      .bindPopup(
-        `<strong>${provider.companyName || ""}</strong><br>${provider.contactName || ""}<br>${provider.email || ""}<br>${provider.phone || ""}<br><em>${provider.address || ""}</em>`
-      );
-
-    markers.push(marker);
-
+    const m = upsertMarker({ ...provider, lat, lon });
     if (opts.pan) map.setView([lat, lon], Math.max(map.getZoom(), 15));
-    if (opts.open) marker.openPopup();
+    if (opts.open) m.openPopup();
   } catch (e) {
     console.error('[geocodeAndAddToMap error]', e);
   }
-}
-
-function clearMarkers() {
-  markers.forEach(m => map.removeLayer(m));
-  markers = [];
 }
 
 // ----------------- Formulaire prestataire -----------------
@@ -352,7 +414,6 @@ async function handleFormSubmit(event) {
     updateProviderList();
     const list = document.getElementById("providerList");
     if (list) list.style.display = "block";
-    fitMapToAllMarkers();
     hideForm();
   } catch (e) {
     console.error("Erreur enregistrement:", e);
@@ -405,10 +466,21 @@ async function searchNearest() {
 // ----------------- Chargement & liste -----------------
 function loadProvidersFromLocalStorage() {
   clearMarkers();
-  const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
-  providers.forEach(p => geocodeAndAddToMap(p, { pan: false, open: false }));
-  fitMapToAllMarkers();
-  updateProviderList();
+  const providers = (JSON.parse(localStorage.getItem(LS_KEY)) || [])
+    .filter(p => p.lat != null && p.lon != null); // pas de géocodage ici
+
+  let i = 0, CHUNK = 200;
+  function addChunk() {
+    const end = Math.min(i + CHUNK, providers.length);
+    for (; i < end; i++) upsertMarker(providers[i]);
+    if (i < providers.length) {
+      requestAnimationFrame(addChunk);
+    } else {
+      fitMapToAllMarkers();
+      updateProviderList();
+    }
+  }
+  requestAnimationFrame(addChunk);
 }
 
 function updateProviderList() {
@@ -426,7 +498,7 @@ function updateProviderList() {
       👤 ${p.contactName || '—'} ${p.firstName ? `(${p.firstName})` : ""}<br>
       📧 ${p.email || '—'}<br>
       📞 ${p.phone || '—'}<br>
-      💰 Tarif total HT : ${p.totalCost || "N/A"}<br>
+      💰 Tarif total HT : ${p.totalCost || "N/A"}${(p.lat!=null&&p.lon!=null)?'':' <em style="color:#a00">(géocodage manquant)</em>'}<br>
       <div style="display:flex; gap:8px; margin-top:6px;">
         <button onclick="editProvider(${i})">✏️ Modifier</button>
         <button onclick="deleteProvider(${i})">🗑️ Supprimer</button>
@@ -462,8 +534,7 @@ window.deleteProvider = async function(index) {
   const toDelete = providers[index];
   try {
     await fireSync.remove(toDelete);
-    clearMarkers();
-    loadProvidersFromLocalStorage();
+    removeMarkerByKey(markerKey(toDelete));
     updateProviderList();
   } catch (e) {
     console.error("Erreur suppression :", e);
@@ -743,7 +814,7 @@ function exportItineraryToPDF() {
   });
 }
 
-// ----------------- Menu / init -----------------
+// ----------------- Menu / init + Backfill coords -----------------
 document.addEventListener("DOMContentLoaded", async () => {
   // Forçage position burger en haut à droite (au cas où le CSS n'est pas chargé)
   const headerEl = document.querySelector('header');
@@ -756,10 +827,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     burger.style.right = '12px';
   }
 
-  // Affichage immédiat depuis le local
+  // Affichage immédiat depuis le local (en lots)
   loadProvidersFromLocalStorage();
-  // Tentative de sync Firestore (si Auth + règles OK)
+
+  // Sync Firestore si possible
   await fireSync.boot();
+
+  // Backfill asynchrone des fiches sans coords (une seule fois)
+  backfillMissingCoords(); // best effort, non bloquant
 
   // Toggle menu
   burger?.addEventListener("click", (e) => {
@@ -776,157 +851,23 @@ function toggleProviderList() {
   list.style.display = list.style.display === "none" ? "block" : "none";
 }
 
-// ----------------- Rapport d’intervention (PDF) -----------------
-function openReportForm() {
-  const modal = document.getElementById("reportModal");
-  if (!modal) return;
-  modal.style.display = "flex";
-
-  const form = document.getElementById("reportForm");
-  const get = id => form.querySelector(`[name="${id}"]`) || form.querySelector(`#${id}`);
-
-  const values = {
-    ticket: get("ticket")?.value || "",
-    date: get("interventionDate")?.value || "",
-    site: get("siteAddress")?.value || "",
-    tech: get("technician")?.value || "",
-    todo: get("todo")?.value || "",
-    done: get("done")?.value || "",
-    start: get("start")?.value || "",
-    end: get("end")?.value || "",
-    signTech: get("signTech")?.value || "",
-    signClient: get("signClient")?.value || ""
-  };
-
-  const reportContent = document.getElementById("reportContent");
-  if (reportContent) {
-    reportContent.innerHTML = `
-      <div style="font-family: Arial, sans-serif; padding: 20px; color: #000;">
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #004080; padding-bottom: 10px;">
-          <img src="logikart-logo.png" alt="LOGIKART" style="height: 50px;">
-          <h2 style="text-align: center; flex-grow: 1; color: #004080;">Rapport d’intervention</h2>
-          <div style="text-align: right; font-size: 12px;">${values.date}</div>
-        </div>
-
-        <div style="margin-top: 20px;">
-          <p><strong>Ticket :</strong> ${values.ticket}</p>
-          <p><strong>Adresse du site :</strong> ${values.site}</p>
-          <p><strong>Nom du technicien :</strong> ${values.tech}</p>
-        </div>
-
-        <div style="margin-top: 20px;">
-          <h4>Travail à faire</h4>
-          <div style="border: 1px solid #ccc; padding: 10px; min-height: 60px;">${values.todo}</div>
-        </div>
-
-        <div style="margin-top: 20px;">
-          <h4>Travail effectué</h4>
-          <div style="border: 1px solid #ccc; padding: 10px; min-height: 80px;">${values.done}</div>
-        </div>
-
-        <div style="margin-top: 20px;">
-          <p><strong>Heure d’arrivée :</strong> ${values.start}</p>
-          <p><strong>Heure de départ :</strong> ${values.end}</p>
-        </div>
-
-        <div style="margin-top: 20px;">
-          <p><strong>Signature du technicien :</strong> ${values.signTech}</p>
-          <p><strong>Signature du client :</strong> ${values.signClient}</p>
-        </div>
-      </div>
-    `;
+// ----------------- Backfill coords manquantes (asynchrone) -----------------
+async function backfillMissingCoords() {
+  const list = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+  let updated = 0;
+  for (const p of list) {
+    const has = p.lat != null && p.lon != null && !isNaN(p.lat) && !isNaN(p.lon);
+    if (!has && p.address) {
+      const data = await fetchNominatim(p.address);
+      if (data && data.length) {
+        p.lat = parseFloat(data[0].lat);
+        p.lon = parseFloat(data[0].lon);
+        await fireSync.upsert(p); // merge Firestore + local
+        updated++;
+      }
+    }
   }
-
-  populateTechnicianSuggestions();
-}
-function closeReportForm() { const modal = document.getElementById("reportModal"); if (modal) modal.style.display = "none"; }
-
-function generatePDF() {
-  const form = document.getElementById("reportForm");
-  const get = id => form.querySelector(`[name="${id}"]`);
-  const values = {
-    ticket: get("ticket").value,
-    date: get("interventionDate").value,
-    site: get("siteAddress").value,
-    tech: get("technician").value,
-    todo: get("todo").value,
-    done: get("done").value,
-    start: get("start").value,
-    end: get("end").value,
-    signTech: get("signTech").value,
-    signClient: get("signClient").value
-  };
-
-  const reportContent = document.getElementById("reportContent");
-  reportContent.innerHTML = `
-    <div style="font-family: Arial, sans-serif; padding: 20px; color: #000;">
-      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #004080; padding-bottom: 10px;">
-        <img src="logikart-logo.png" alt="LOGIKART" style="height: 50px;">
-        <h2 style="text-align: center; flex-grow: 1; color: #004080;">Rapport d’intervention</h2>
-        <div style="text-align: right; font-size: 12px;">${values.date}</div>
-      </div>
-
-      <div style="margin-top: 20px;">
-        <p><strong>Ticket :</strong> ${values.ticket}</p>
-        <p><strong>Adresse du site :</strong> ${values.site}</p>
-        <p><strong>Nom du technicien :</strong> ${values.tech}</p>
-      </div>
-
-      <div style="margin-top: 20px;">
-        <h4>Travail à faire</h4>
-        <div style="border: 1px solid #ccc; padding: 10px; min-height: 60px;">${values.todo}</div>
-      </div>
-
-      <div style="margin-top: 20px;">
-        <h4>Travail effectué</h4>
-        <div style="border: 1px solid #ccc; padding: 10px; min-height: 80px;">${values.done}</div>
-      </div>
-
-      <div style="margin-top: 20px;">
-        <p><strong>Heure d’arrivée :</strong> ${values.start}</p>
-        <p><strong>Heure de départ :</strong> ${values.end}</p>
-      </div>
-      
-      <div style="margin-top: 20px; display: flex; justify-content: space-between;">
-        <div style="width: 48%;">
-          <p><strong>Signature du technicien :</strong></p>
-          <div style="border: 1px solid #ccc; height: 60px;"></div>
-          <p style="text-align: center; margin-top: 5px;">${values.signTech}</p>
-        </div>
-        <div style="width: 48%;">
-          <p><strong>Signature du client :</strong></p>
-          <div style="border: 1px solid #ccc; height: 60px;"></div>
-          <p style="text-align: center; margin-top: 5px;">${values.signClient}</p>
-        </div>
-      </div>
-    </div>
-  `;
-
-  reportContent.style.display = "block";
-
-  html2pdf().set({
-    margin: 0.5,
-    filename: 'rapport_intervention_LOGIKART.pdf',
-    image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2 },
-    jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
-  }).from(reportContent).save().then(() => {
-    reportContent.style.display = "none";
-    form.reset();
-    closeReportForm();
-  });
-}
-
-function populateTechnicianSuggestions() {
-  const datalist = document.getElementById("technicianList");
-  if (!datalist) return;
-  datalist.innerHTML = "";
-  const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
-  providers.forEach(p => {
-    const option = document.createElement("option");
-    option.value = `${p.firstName || ""} ${p.contactName || ""}`.trim();
-    datalist.appendChild(option);
-  });
+  if (updated) console.log(`[Backfill] ${updated} prestataires enrichis en lat/lon`);
 }
 
 // ----------------- Expose au scope global -----------------
