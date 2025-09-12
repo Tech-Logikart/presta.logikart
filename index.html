@@ -1,231 +1,201 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>LOGIKART – Prestataires</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>LOGIKART - Carte des Prestataires</title>
 
-  <!-- Styles -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
   <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="logikart-logo.png" />
 
-  <style>
-    /* Sécurité: burger toujours en haut-droite même sans CSS externe */
-    header { position: relative; }
-    #burgerMenu { position: absolute; top: 12px; right: 12px; z-index: 1000; }
-    #menuDropdown { position: absolute; right: 12px; top: 48px; display:none; z-index: 1000; background:#fff; border:1px solid #ddd; border-radius:8px; padding:8px; min-width: 220px; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
-    #menuDropdown button, #menuDropdown a { width:100%; display:block; text-align:left; margin:4px 0; }
-    body, html { height: 100%; }
-    main { height: calc(100% - 56px); }
-    #map { width: 100%; height: 60vh; }
-    #providerList { max-height: 32vh; overflow: auto; }
-    .modal {
-      display:none; position:fixed; inset:0; background:rgba(0,0,0,.4);
-      align-items:center; justify-content:center; z-index:2000;
-    }
-    .modal .card {
-      background:#fff; padding:16px; border-radius:12px; max-width: 720px; width: min(92vw, 720px);
-      max-height: 85vh; overflow:auto;
-    }
-    .row { display:flex; gap:8px; }
-    .row > * { flex: 1; }
-    .provider-entry { padding: 8px 0; }
-  </style>
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 </head>
+
 <body>
-  <header>
-    <img src="logikart-logo.png" alt="LOGIKART" style="height:40px; margin:8px 12px;">
-    <button id="burgerMenu">☰</button>
-    <div id="menuDropdown">
-      <button onclick="openImportModal()">📥 Importer</button>
-      <div class="row">
-        <button onclick="exportProviders('json')">📤 Export JSON</button>
-        <button onclick="exportProviders('csv')">📤 Export CSV</button>
+  <header style="display:flex; flex-direction:column; align-items:center; gap:10px; padding:16px;">
+    <img src="logikart-logo.png" alt="LOGIKART" style="height:60px;" />
+    <h1 style="text-align:center; margin:0;">LOGIKART - Réseau de prestataires informatiques</h1>
+
+    <!-- Menu burger -->
+    <div id="burgerMenu" style="position:relative; user-select:none; cursor:pointer; font-size:20px;">
+      ☰
+      <div id="menuDropdown"
+           style="display:none; position:absolute; top: 1.8rem; right:0; background:#fff; border:1px solid #eee; border-radius:8px; padding:6px 0; z-index:1000; min-width:240px; box-shadow:0 6px 20px rgba(0,0,0,.08);">
+        <ul style="list-style:none; margin:0; padding:0;">
+          <li style="padding:10px 14px; cursor:pointer;" onclick="toggleProviderList()">📋 Prestataires</li>
+          <li style="padding:10px 14px; cursor:pointer;" onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
+          <li style="padding:10px 14px; cursor:pointer;" onclick="openReportForm()">📝 Imprimer rapport d’intervention</li>
+          <li style="border-top:1px solid #eee; margin:6px 0 0 0;"></li>
+          <li style="padding:10px 14px; cursor:pointer;" onclick="exportProviders('json')">⬇️ Exporter (JSON)</li>
+          <li style="padding:10px 14px; cursor:pointer;" onclick="exportProviders('csv')">⬇️ Exporter (CSV)</li>
+          <li style="padding:10px 14px; cursor:pointer;" onclick="openImportModal()">⬆️ Importer</li>
+        </ul>
       </div>
-      <hr>
-      <button onclick="openReportForm()">📝 Rapport d’intervention</button>
-      <button onclick="openItineraryTool()">🧭 Itinéraire</button>
-      <hr>
-      <button onclick="toggleProviderList()">👁️ Afficher/Masquer la liste</button>
-      <button onclick="addProvider()">➕ Ajouter un prestataire</button>
     </div>
   </header>
 
-  <main>
-    <!-- Recherche de proximité -->
-    <section style="padding:8px 12px;">
-      <div class="row">
-        <input id="cityInput" type="text" placeholder="Ville (ex: Lyon, France)" />
-        <button onclick="searchNearest()">Rechercher le prestataire le plus proche</button>
-      </div>
-    </section>
+  <section style="padding: 10px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+    <input type="text" id="cityInput" placeholder="Ville" style="width: 260px; padding:8px; border:1px solid #ccc; border-radius:6px;" />
+    <button onclick="searchNearest()">Rechercher</button>
+    <button onclick="addProvider()">Ajouter un prestataire</button>
+  </section>
 
-    <!-- Carte -->
-    <section>
-      <div id="map"></div>
-    </section>
+  <div id="map" style="width:100%; height:80vh;"></div>
 
-    <!-- Liste des prestataires -->
-    <section style="padding:8px 12px;">
-      <h3>Prestataires</h3>
-      <div id="providerList"></div>
-    </section>
-  </main>
-
-  <!-- Formulaire Prestataire -->
-  <section id="providerFormSection" class="modal" aria-hidden="true">
-    <div class="card">
-      <h3>Prestataire</h3>
+  <!-- Formulaire modal d'ajout / édition -->
+  <div id="providerFormSection" class="modal-overlay" style="display:none;">
+    <div class="modal-content">
       <form id="providerForm">
-        <div class="row">
-          <input id="companyName" placeholder="Raison sociale" required />
-          <input id="contactName" placeholder="Nom" />
-          <input id="firstName" placeholder="Prénom" />
-        </div>
-        <input id="address" placeholder="Adresse complète" required />
-        <div class="row">
-          <input id="email" type="email" placeholder="Email" />
-          <input id="phone" placeholder="Téléphone" />
-        </div>
-        <div class="row">
-          <input id="rate" placeholder="Tarif heure HT" />
-          <input id="travelFees" placeholder="Frais déplacement HT" />
-          <input id="totalCost" placeholder="Tarif total HT (auto si vide)" />
-        </div>
-        <div class="row" style="justify-content:flex-end;">
-          <button type="button" onclick="hideForm()">Annuler</button>
+        <h2>Ajouter un prestataire</h2>
+        <input type="text" id="companyName" placeholder="RAISON SOCIALE" required />
+        <input type="text" id="contactName" placeholder="NOM" required />
+        <input type="text" id="firstName" placeholder="PRÉNOM" />
+        <input type="text" id="address" placeholder="ADRESSE POSTALE" required />
+        <input type="email" id="email" placeholder="ADRESSE EMAIL" />
+        <input type="tel" id="phone" placeholder="N° DE TÉLÉPHONE" />
+        <input type="number" id="rate" placeholder="Tarif heure HT (€)" step="0.01" />
+        <input type="number" id="travelFees" placeholder="Frais de déplacement HT (€)" step="0.01" />
+        <input type="text" id="totalCost" placeholder="Tarif total HT (€)" readonly />
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button type="submit">Enregistrer</button>
+          <button type="button" onclick="hideForm()">Annuler</button>
         </div>
       </form>
+      <script>
+        const rateInput = document.getElementById("rate");
+        const travelInput = document.getElementById("travelFees");
+        const totalInput = document.getElementById("totalCost");
+        function updateTotal() {
+          const rate = parseFloat(rateInput.value) || 0;
+          const travel = parseFloat(travelInput.value) || 0;
+          totalInput.value = (rate + travel).toFixed(2) + " €";
+        }
+        rateInput.addEventListener("input", updateTotal);
+        travelInput.addEventListener("input", updateTotal);
+      </script>
     </div>
-  </section>
+  </div>
 
-  <!-- Modal Import -->
-  <section id="importModal" class="modal" aria-hidden="true">
-    <div class="card">
-      <h3>Importer des prestataires</h3>
-      <p>Formats acceptés : <strong>.json</strong> ou <strong>.csv</strong> (en-têtes FR/EN reconnus).</p>
-      <input id="importFile" type="file" accept=".json,.csv" />
-      <label style="display:block; margin:8px 0;">
-        <input id="skipDuplicates" type="checkbox" checked />
-        Ignorer les doublons (email+phone)
+  <!-- Liste des prestataires -->
+  <aside id="providerList" style="display:none;"></aside>
+
+  <!-- Rapport d’intervention -->
+  <div id="reportModal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <span class="close" onclick="closeReportForm()">×</span>
+      <form id="reportForm">
+        <img src="logikart-logo.png" alt="LOGIKART" class="logo" style="height:60px;" />
+        <h2>Rapport d’intervention LOGIKART</h2>
+        <label>Numéro de ticket :</label>
+        <input type="text" name="ticket" required />
+        <label>Date d’intervention :</label>
+        <input type="date" name="interventionDate" required />
+        <label>Adresse du site :</label>
+        <input type="text" name="siteAddress" required />
+        <label>Nom du technicien :</label>
+        <input type="text" name="technician" list="technicianList" required />
+        <datalist id="technicianList"></datalist>
+        <label>Travail à faire :</label>
+        <textarea name="todo" rows="6" required></textarea>
+        <label>Travail effectué :</label>
+        <textarea name="done" rows="10" required></textarea>
+        <label>Heure d’arrivée :</label>
+        <input type="time" name="start" required />
+        <label>Heure de départ :</label>
+        <input type="time" name="end" required />
+        <label>Signature du technicien :</label>
+        <input type="text" name="signTech" />
+        <label>Signature du client :</label>
+        <input type="text" name="signClient" />
+        <div class="form-buttons">
+          <button type="button" onclick="generatePDF()">📄 Générer PDF</button>
+          <button type="button" onclick="closeReportForm()">❌ Fermer</button>
+        </div>
+      </form>
+      <div id="reportContent" style="display:none;"></div>
+    </div>
+  </div>
+
+  <!-- Itinéraire -->
+  <div id="itineraryModal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <span class="close" onclick="closeItineraryModal()">×</span>
+      <h2>🧭 Calcul d'itinéraire</h2>
+      <form id="itineraryForm">
+        <label>Adresse de départ :</label>
+        <input type="text" id="startAddress" required />
+        <label>Adresse de destination :</label>
+        <input type="text" id="endAddress" required />
+        <div id="extraDestinations"></div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" onclick="addDestinationField()">➕ Ajouter une destination</button>
+          <button type="button" onclick="calculateRoute()">🚗 Calculer l’itinéraire</button>
+        </div>
+      </form>
+      <div id="routeResult" style="margin-top:15px;"></div>
+      <button type="button" onclick="exportItineraryToPDF()" style="margin-top:10px; display:none;" id="exportPdfBtn">📄 Exporter en PDF</button>
+    </div>
+  </div>
+
+  <!-- Import prestataires -->
+  <div id="importModal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <span class="close" onclick="closeImportModal()">×</span>
+      <h2>↕️ Importer des prestataires</h2>
+      <p>Fichiers acceptés : <strong>JSON</strong> ou <strong>CSV</strong> (entêtes : <code>id,companyName,contactName,firstName,address,email,phone,rate,travelFees,totalCost</code>)</p>
+      <input type="file" id="importFile" accept=".json,.csv" />
+      <label style="display:block; margin-top:8px;">
+        <input type="checkbox" id="skipDuplicates" checked />
+        Ignorer les doublons (même email + téléphone)
       </label>
-      <div class="row" style="justify-content:flex-end;">
-        <button onclick="closeImportModal()">Fermer</button>
-        <button onclick="handleImport()">Importer</button>
+      <div class="form-buttons" style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button type="button" onclick="handleImport()">Importer</button>
+        <button type="button" onclick="closeImportModal()">Annuler</button>
       </div>
     </div>
-  </section>
+  </div>
 
-  <!-- Modal Rapport d’intervention -->
-  <section id="reportModal" class="modal" aria-hidden="true">
-    <div class="card">
-      <h3>Rapport d’intervention</h3>
-      <form id="reportForm">
-        <div class="row">
-          <input name="ticket" placeholder="N° Ticket" />
-          <input name="interventionDate" type="date" />
-        </div>
-        <input name="siteAddress" placeholder="Adresse du site" />
-        <div class="row">
-          <input name="technician" list="technicianList" placeholder="Technicien" />
-          <datalist id="technicianList"></datalist>
-        </div>
-        <textarea name="todo" rows="3" placeholder="Travail à faire"></textarea>
-        <textarea name="done" rows="4" placeholder="Travail effectué"></textarea>
-        <div class="row">
-          <input name="start" type="time" placeholder="Heure d'arrivée" />
-          <input name="end" type="time" placeholder="Heure de départ" />
-        </div>
-        <div class="row">
-          <input name="signTech" placeholder="Signature technicien (nom)" />
-          <input name="signClient" placeholder="Signature client (nom)" />
-        </div>
-        <div class="row" style="justify-content:flex-end;">
-          <button type="button" onclick="closeReportForm()">Fermer</button>
-          <button type="button" onclick="printReport()">Imprimer</button>
-          <button type="button" onclick="generatePDF()">Exporter en PDF</button>
-        </div>
-      </form>
-
-      <!-- Aperçu utilisé par le PDF/print -->
-      <div id="reportContent" style="display:none; margin-top:12px;"></div>
-    </div>
-  </section>
-
-  <!-- Modal Itinéraire -->
-  <section id="itineraryModal" class="modal" aria-hidden="true">
-    <div class="card">
-      <h3>Calcul d’itinéraire</h3>
-      <form id="itineraryForm" onsubmit="return false;">
-        <input id="startAddress" placeholder="Départ" />
-        <div id="extraDestinations"></div>
-        <button type="button" onclick="addDestinationField()">+ Ajouter une étape</button>
-        <input id="endAddress" placeholder="Arrivée" />
-        <div class="row" style="justify-content:flex-end;">
-          <button type="button" onclick="closeItineraryModal()">Fermer</button>
-          <button type="button" onclick="calculateRoute()">Calculer</button>
-          <button id="exportPdfBtn" type="button" onclick="exportItineraryToPDF()" style="display:none;">Exporter PDF</button>
-        </div>
-      </form>
-      <div id="routeResult" style="margin-top:8px;"></div>
-    </div>
-  </section>
-
-  <!-- Librairies JS -->
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
-
-  <!-- PDF & rendu de carte (pour itinéraire PDF) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" defer></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-image/0.0.4/leaflet-image.js" defer></script>
-
-  <!-- Firebase (Compat v9 pour API globale firebase.*) -->
+  <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 
+  <!-- Initialisation Firebase + Auth anonyme -->
   <script>
-    // ⚠️ REMPLACER PAR TA CONFIG EXACTE (celle déjà fonctionnelle dans ton projet)
     const firebaseConfig = {
-      apiKey: "REPLACE_ME",
-      authDomain: "REPLACE_ME.firebaseapp.com",
-      projectId: "REPLACE_ME",
-      storageBucket: "REPLACE_ME.appspot.com",
-      messagingSenderId: "REPLACE_ME",
-      appId: "REPLACE_ME"
+      apiKey: "AIzaSyA59iB-7skqRFngoF24VkAHZMBSIonh7Ho",
+      authDomain: "lgk-presta.firebaseapp.com",
+      projectId: "lgk-presta",
+      storageBucket: "lgk-presta.firebasestorage.app",
+      messagingSenderId: "386610630784",
+      appId: "1:386610630784:web:015bb6c04156918d369665"
     };
-
-    // Init Firebase + Firestore
     firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
-    const auth = firebase.auth();
+    window.db = firebase.firestore();
 
-    // Exposé pour script.js
-    window.db = db;
-
-    // Auth anonyme (utilisée par script.js via window.authReady)
-    window.authReady = (async () => {
-      try {
-        // Pas de persistance sur GitHub Pages (optional mais évite side-effects)
-        if (auth.setPersistence) {
-          await auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
+    // Auth anonyme – résolue quand prête (⚠️ activer "Anonymous" dans la console)
+    window.authReady = new Promise((resolve) => {
+      firebase.auth().onAuthStateChanged((user) => {
+        if (user) {
+          console.log('[Auth] Anonyme connecté:', user.uid);
+          resolve(user);
+        } else {
+          firebase.auth().signInAnonymously()
+            .then((cred) => { console.log('[Auth] Connexion anonyme ok:', cred.user?.uid); resolve(cred.user); })
+            .catch((err) => { console.error('[Auth] Echec connexion anonyme:', err); resolve(null); });
         }
-      } catch (e) {
-        console.warn("[Auth] setPersistence warning:", e?.message || e);
-      }
-      try {
-        await auth.signInAnonymously();
-        console.log("[Auth] Connecté anonymement");
-      } catch (e) {
-        console.warn("[Auth] Echec connexion anonyme:", e);
-      }
-    })();
+      });
+    });
   </script>
 
-  <!-- Ton code applicatif -->
-  <script src="script.js" defer></script>
+  <!-- PDF & rendu carte -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+  <!-- Script principal -->
+  <script src="script.js"></script>
 </body>
 </html>
