@@ -1,6 +1,6 @@
 // ======================= LOGIKART / script.js =======================
-// Carte Leaflet — vue monde par défaut
-const map = L.map('map').setView([20, 0], 2);
+// Carte Leaflet — vue Europe par défaut
+const map = L.map('map').setView([54, 15], 4);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '© OpenStreetMap contributors'
 }).addTo(map);
@@ -29,7 +29,8 @@ function fitMapToAllMarkers() {
     const group = L.featureGroup(markers);
     map.fitBounds(group.getBounds().pad(0.1));
   } else {
-    map.setView([20, 0], 2);
+    // repli = Europe
+    map.setView([54, 15], 4);
   }
 }
 
@@ -859,7 +860,7 @@ window.closeImportModal = closeImportModal;
 window.handleImport = handleImport;
 
 // --------------------------------------------------------------------
-// Rappel pour la prod GitHub Pages : ajoute dans Firebase > Auth > Domaines autorisés
+// Production GitHub Pages : ajoute dans Firebase > Auth > Domaines autorisés
 //   tech-logikart.github.io   (et localhost si besoin)
 // Active "Anonymous" et publie les "Rules" Firestore.
 // --------------------------------------------------------------------
