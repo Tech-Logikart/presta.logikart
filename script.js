@@ -1,6 +1,6 @@
 // ======================= LOGIKART / script.js =======================
-// Carte Leaflet
-const map = L.map('map').setView([48.8566, 2.3522], 5);
+// Carte Leaflet — vue monde par défaut
+const map = L.map('map').setView([20, 0], 2);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '© OpenStreetMap contributors'
 }).addTo(map);
@@ -17,12 +17,21 @@ window.addEventListener('unhandledrejection', (event) => {
   }
 });
 
-// ----------------- Auth anonyme (fourni par index.html) -----------------
+// ----------------- Auth anonyme (fournie par index.html) -----------------
 async function ensureAuth() { try { if (window.authReady) await window.authReady; } catch {} }
 
 // ----------------- Firestore ⇄ localStorage sync -----------------
 const LS_KEY = "providers";
 const keyOf = (p) => (String(p.email || "").toLowerCase() + "|" + String(p.phone || ""));
+
+function fitMapToAllMarkers() {
+  if (markers.length > 0) {
+    const group = L.featureGroup(markers);
+    map.fitBounds(group.getBounds().pad(0.1));
+  } else {
+    map.setView([20, 0], 2);
+  }
+}
 
 const fireSync = {
   online: false,
@@ -47,7 +56,8 @@ const fireSync = {
     snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
     localStorage.setItem(LS_KEY, JSON.stringify(list));
     clearMarkers();
-    list.forEach(geocodeAndAddToMap);
+    list.forEach(p => geocodeAndAddToMap(p, { pan: false, open: false }));
+    fitMapToAllMarkers();
     updateProviderList();
   },
 
@@ -91,7 +101,8 @@ const fireSync = {
       snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
       localStorage.setItem(LS_KEY, JSON.stringify(list));
       clearMarkers();
-      list.forEach(geocodeAndAddToMap);
+      list.forEach(p => geocodeAndAddToMap(p, { pan: false, open: false }));
+      fitMapToAllMarkers();
       updateProviderList();
     }, (err) => {
       this.online = false;
@@ -133,10 +144,12 @@ async function handleFormSubmit(event) {
 
   try {
     const saved = await fireSync.upsert(provider);
+    // Animation uniquement lors de l’ajout manuel
     geocodeAndAddToMap(saved, { pan: true, open: true });
     updateProviderList();
     const list = document.getElementById("providerList");
     if (list) list.style.display = "block";
+    fitMapToAllMarkers(); // recadre après ajout
     hideForm();
   } catch (e) {
     console.error("Erreur enregistrement:", e);
@@ -247,9 +260,9 @@ async function geocodeAndAddToMap(provider, opts = { pan: false, open: false }) 
 
     markers.push(marker);
 
-    const targetZoom = Math.max(map.getZoom(), 15);
-    if (opts.pan || true) map.setView([lat, lon], targetZoom);
-    if (opts.open || true) marker.openPopup();
+    // 👉 On n'anime QUE si demandé (pas pendant les chargements en lot)
+    if (opts.pan) map.setView([lat, lon], Math.max(map.getZoom(), 15));
+    if (opts.open) marker.openPopup();
   } catch (e) {
     console.error('[geocodeAndAddToMap error]', e);
   }
@@ -303,7 +316,8 @@ async function searchNearest() {
 function loadProvidersFromLocalStorage() {
   clearMarkers();
   const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
-  providers.forEach(geocodeAndAddToMap);
+  providers.forEach(p => geocodeAndAddToMap(p, { pan: false, open: false }));
+  fitMapToAllMarkers();
   updateProviderList();
 }
 
@@ -385,7 +399,7 @@ function exportProviders(format = "json") {
       if (v === null || v === undefined) return "";
       v = String(v);
       return /[",\n\r;]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
-      };
+    };
     const rows = [headers.join(",")];
     for (const p of providers) rows.push(headers.map(h => escape(p[h] ?? "")).join(","));
     const csv = rows.join("\r\n");
@@ -547,11 +561,23 @@ async function handleImport() {
 
 // ----------------- Menu / init -----------------
 document.addEventListener("DOMContentLoaded", async () => {
-  loadProvidersFromLocalStorage();   // affichage immédiat
-  await fireSync.boot();             // tente la sync Firestore
-
+  // Forçage position burger en haut à droite (au cas où le CSS n'est pas chargé)
+  const headerEl = document.querySelector('header');
   const burger = document.getElementById("burgerMenu");
   const dropdown = document.getElementById("menuDropdown");
+  if (headerEl) headerEl.style.position = 'relative';
+  if (burger) {
+    burger.style.position = 'absolute';
+    burger.style.top = '12px';
+    burger.style.right = '12px';
+  }
+
+  // Affichage immédiat depuis le local
+  loadProvidersFromLocalStorage();
+  // Tentative de sync Firestore (si Auth + règles OK)
+  await fireSync.boot();
+
+  // Toggle menu
   burger?.addEventListener("click", (e) => {
     e.stopPropagation();
     if (!dropdown) return;
