@@ -5,6 +5,15 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '© OpenStreetMap contributors'
 }).addTo(map);
 
+// --- utilitaire debounce (retarde l'appel tant que ça "bouge") ---
+function debounce(fn, delay = 120) {
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), delay);
+  };
+}
+
 // ---------- Marqueurs performants (index + layer + cluster optionnel) ----------
 let markerIndex = new Map(); // key -> { marker, data }
 let markerLayer;
@@ -110,7 +119,7 @@ const fireSync = {
         requestAnimationFrame(addChunk);
       } else {
         fitMapToAllMarkers();
-        updateProviderList();
+        updateProviderList(); // débouncé
       }
     }
     requestAnimationFrame(addChunk);
@@ -191,7 +200,7 @@ const fireSync = {
 
       // recentre seulement s'il y a de nouvelles entrées
       if (pendingFit.added > 0) fitMapToAllMarkers();
-      updateProviderList();
+      updateProviderList(); // débouncé
     }, (err) => {
       this.online = false;
       console.warn("[Sync] onSnapshot error -> mode local:", err?.message || err);
@@ -411,7 +420,7 @@ async function handleFormSubmit(event) {
   try {
     const saved = await fireSync.upsert(provider);        // géocode ici si besoin + stocke lat/lon
     geocodeAndAddToMap(saved, { pan: true, open: true }); // animation locale
-    updateProviderList();
+    updateProviderList(); // débouncé
     const list = document.getElementById("providerList");
     if (list) list.style.display = "block";
     hideForm();
@@ -477,13 +486,14 @@ function loadProvidersFromLocalStorage() {
       requestAnimationFrame(addChunk);
     } else {
       fitMapToAllMarkers();
-      updateProviderList();
+      updateProviderList(); // débouncé
     }
   }
   requestAnimationFrame(addChunk);
 }
 
-function updateProviderList() {
+// --- rendu immédiat (non débouncé) de la liste ---
+function updateProviderListNow() {
   const container = document.getElementById("providerList");
   if (!container) return;
 
@@ -508,6 +518,9 @@ function updateProviderList() {
     container.appendChild(div);
   });
 }
+// --- version débouncée utilisée partout ---
+const updateProviderList = debounce(updateProviderListNow, 120);
+window.updateProviderList = updateProviderList; // si jamais appelé depuis HTML inline
 
 function editProvider(index) {
   const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
@@ -535,7 +548,7 @@ window.deleteProvider = async function(index) {
   try {
     await fireSync.remove(toDelete);
     removeMarkerByKey(markerKey(toDelete));
-    updateProviderList();
+    updateProviderList(); // débouncé
   } catch (e) {
     console.error("Erreur suppression :", e);
     alert("Suppression impossible (vérifie les règles Firestore).");
@@ -715,6 +728,9 @@ async function handleImport() {
   }
 
   if (fireSync.online) await fireSync.pullAll(); else { clearMarkers(); loadProvidersFromLocalStorage(); }
+
+  // Forcer un rendu immédiat final de la liste (micro-gain)
+  updateProviderListNow();
 
   alert(`Import terminé :
 - ${results.added} ajoutés
