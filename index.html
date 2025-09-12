@@ -10,29 +10,53 @@
 
   <!-- Leaflet -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <!-- (Optionnel mais recommandé) Clustering pour de meilleures perfs avec beaucoup de points -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+
+  <style>
+    /* Burger fixé en haut-droite, au-dessus du header */
+    header { position: relative; padding: 16px 12px 8px; }
+    #burgerMenu {
+      position: absolute; top: 12px; right: 12px;
+      user-select: none; cursor: pointer; font-size: 20px; z-index: 1000;
+      background: #fff; border: 1px solid #eee; border-radius: 8px; padding: 6px 10px; line-height: 1;
+      box-shadow: 0 6px 20px rgba(0,0,0,.08);
+    }
+    #menuDropdown {
+      display: none; position: absolute; top: 48px; right: 12px; background:#fff; border:1px solid #eee; border-radius:8px;
+      padding:6px 0; z-index:1000; min-width:240px; box-shadow:0 6px 20px rgba(0,0,0,.12);
+    }
+    #menuDropdown ul { list-style:none; margin:0; padding:0; }
+    #menuDropdown li { padding:10px 14px; cursor:pointer; }
+    #menuDropdown li.divider { border-top:1px solid #eee; margin:6px 0 0 0; padding:0; }
+
+    body, html { height: 100%; }
+    #map { width: 100%; height: 80vh; }
+    #providerList { display:none; max-height: 50vh; overflow:auto; padding: 12px; }
+    .modal, .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); align-items:center; justify-content:center; z-index:2000; }
+    .modal-content { background:#fff; padding:16px; border-radius:12px; max-width: 720px; width: min(92vw, 720px); max-height: 85vh; overflow:auto; }
+    .form-buttons { display:flex; gap:8px; flex-wrap:wrap; }
+  </style>
 </head>
 
 <body>
-  <header style="display:flex; flex-direction:column; align-items:center; gap:10px; padding:16px;">
+  <header style="display:flex; flex-direction:column; align-items:center; gap:10px;">
     <img src="logikart-logo.png" alt="LOGIKART" style="height:60px;" />
     <h1 style="text-align:center; margin:0;">LOGIKART - Réseau de prestataires informatiques</h1>
 
     <!-- Menu burger -->
-    <div id="burgerMenu" style="position:relative; user-select:none; cursor:pointer; font-size:20px;">
-      ☰
-      <div id="menuDropdown"
-           style="display:none; position:absolute; top: 1.8rem; right:0; background:#fff; border:1px solid #eee; border-radius:8px; padding:6px 0; z-index:1000; min-width:240px; box-shadow:0 6px 20px rgba(0,0,0,.08);">
-        <ul style="list-style:none; margin:0; padding:0;">
-          <li style="padding:10px 14px; cursor:pointer;" onclick="toggleProviderList()">📋 Prestataires</li>
-          <li style="padding:10px 14px; cursor:pointer;" onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
-          <li style="padding:10px 14px; cursor:pointer;" onclick="openReportForm()">📝 Imprimer rapport d’intervention</li>
-          <li style="border-top:1px solid #eee; margin:6px 0 0 0;"></li>
-          <li style="padding:10px 14px; cursor:pointer;" onclick="exportProviders('json')">⬇️ Exporter (JSON)</li>
-          <li style="padding:10px 14px; cursor:pointer;" onclick="exportProviders('csv')">⬇️ Exporter (CSV)</li>
-          <li style="padding:10px 14px; cursor:pointer;" onclick="openImportModal()">⬆️ Importer</li>
-        </ul>
-      </div>
+    <div id="burgerMenu">☰</div>
+    <div id="menuDropdown">
+      <ul>
+        <li onclick="toggleProviderList()">📋 Prestataires</li>
+        <li onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
+        <li onclick="openReportForm()">📝 Imprimer rapport d’intervention</li>
+        <li class="divider"></li>
+        <li onclick="exportProviders('json')">⬇️ Exporter (JSON)</li>
+        <li onclick="exportProviders('csv')">⬇️ Exporter (CSV)</li>
+        <li onclick="openImportModal()">⬆️ Importer</li>
+      </ul>
     </div>
   </header>
 
@@ -42,10 +66,10 @@
     <button onclick="addProvider()">Ajouter un prestataire</button>
   </section>
 
-  <div id="map" style="width:100%; height:80vh;"></div>
+  <div id="map"></div>
 
   <!-- Formulaire modal d'ajout / édition -->
-  <div id="providerFormSection" class="modal-overlay" style="display:none;">
+  <div id="providerFormSection" class="modal-overlay">
     <div class="modal-content">
       <form id="providerForm">
         <h2>Ajouter un prestataire</h2>
@@ -58,7 +82,7 @@
         <input type="number" id="rate" placeholder="Tarif heure HT (€)" step="0.01" />
         <input type="number" id="travelFees" placeholder="Frais de déplacement HT (€)" step="0.01" />
         <input type="text" id="totalCost" placeholder="Tarif total HT (€)" readonly />
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <div class="form-buttons">
           <button type="submit">Enregistrer</button>
           <button type="button" onclick="hideForm()">Annuler</button>
         </div>
@@ -79,10 +103,10 @@
   </div>
 
   <!-- Liste des prestataires -->
-  <aside id="providerList" style="display:none;"></aside>
+  <aside id="providerList"></aside>
 
   <!-- Rapport d’intervention -->
-  <div id="reportModal" class="modal" style="display:none;">
+  <div id="reportModal" class="modal">
     <div class="modal-content">
       <span class="close" onclick="closeReportForm()">×</span>
       <form id="reportForm">
@@ -110,6 +134,7 @@
         <label>Signature du client :</label>
         <input type="text" name="signClient" />
         <div class="form-buttons">
+          <button type="button" onclick="printReport()">🖨️ Imprimer</button>
           <button type="button" onclick="generatePDF()">📄 Générer PDF</button>
           <button type="button" onclick="closeReportForm()">❌ Fermer</button>
         </div>
@@ -119,7 +144,7 @@
   </div>
 
   <!-- Itinéraire -->
-  <div id="itineraryModal" class="modal" style="display:none;">
+  <div id="itineraryModal" class="modal">
     <div class="modal-content">
       <span class="close" onclick="closeItineraryModal()">×</span>
       <h2>🧭 Calcul d'itinéraire</h2>
@@ -129,8 +154,8 @@
         <label>Adresse de destination :</label>
         <input type="text" id="endAddress" required />
         <div id="extraDestinations"></div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button type="button" onclick="addDestinationField()">➕ Ajouter une destination</button>
+        <div class="form-buttons">
+          <button type="button" onclick="addDestinationField()">➕ Ajouter une étape</button>
           <button type="button" onclick="calculateRoute()">🚗 Calculer l’itinéraire</button>
         </div>
       </form>
@@ -139,28 +164,15 @@
     </div>
   </div>
 
-  <!-- Import prestataires -->
-  <div id="importModal" class="modal" style="display:none;">
-    <div class="modal-content">
-      <span class="close" onclick="closeImportModal()">×</span>
-      <h2>↕️ Importer des prestataires</h2>
-      <p>Fichiers acceptés : <strong>JSON</strong> ou <strong>CSV</strong> (entêtes : <code>id,companyName,contactName,firstName,address,email,phone,rate,travelFees,totalCost</code>)</p>
-      <input type="file" id="importFile" accept=".json,.csv" />
-      <label style="display:block; margin-top:8px;">
-        <input type="checkbox" id="skipDuplicates" checked />
-        Ignorer les doublons (même email + téléphone)
-      </label>
-      <div class="form-buttons" style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
-        <button type="button" onclick="handleImport()">Importer</button>
-        <button type="button" onclick="closeImportModal()">Annuler</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <!-- (Optionnel) MarkerCluster JS -->
+  <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
 
   <!-- Initialisation Firebase + Auth anonyme -->
   <script>
@@ -173,29 +185,48 @@
       appId: "1:386610630784:web:015bb6c04156918d369665"
     };
     firebase.initializeApp(firebaseConfig);
-    window.db = firebase.firestore();
+    const db = firebase.firestore();
+    const auth = firebase.auth();
 
-    // Auth anonyme – résolue quand prête (⚠️ activer "Anonymous" dans la console)
-    window.authReady = new Promise((resolve) => {
-      firebase.auth().onAuthStateChanged((user) => {
-        if (user) {
-          console.log('[Auth] Anonyme connecté:', user.uid);
-          resolve(user);
-        } else {
-          firebase.auth().signInAnonymously()
-            .then((cred) => { console.log('[Auth] Connexion anonyme ok:', cred.user?.uid); resolve(cred.user); })
-            .catch((err) => { console.error('[Auth] Echec connexion anonyme:', err); resolve(null); });
+    // Expose pour script.js
+    window.db = db;
+
+    // Auth anonyme – script.js attend window.authReady
+    window.authReady = (async () => {
+      try {
+        // Persistance NONE pour GitHub Pages (évite cookies/local state côté Auth)
+        if (auth.setPersistence) {
+          await auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
         }
-      });
-    });
+      } catch (e) {
+        console.warn("[Auth] setPersistence:", e?.message || e);
+      }
+      try {
+        await auth.signInAnonymously();
+        console.log("[Auth] Connecté anonymement");
+      } catch (e) {
+        console.warn("[Auth] Echec connexion anonyme:", e);
+      }
+    })();
   </script>
 
   <!-- PDF & rendu carte -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-  <script src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <script src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
 
-  <!-- Script principal -->
+  <!-- Script principal (doit arriver APRÈS db/authReady) -->
   <script src="script.js"></script>
+
+  <!-- Petit JS du burger (ouvert/fermé) -->
+  <script>
+    const burger = document.getElementById('burgerMenu');
+    const dropdown = document.getElementById('menuDropdown');
+    burger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dropdown.style.display = (dropdown.style.display === 'block') ? 'none' : 'block';
+    });
+    document.addEventListener('click', () => { dropdown.style.display = 'none'; });
+  </script>
 </body>
 </html>
