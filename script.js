@@ -63,6 +63,18 @@ const fireSync = {
   },
 
   async upsert(p) {
+    // 1) compléter lat/lon si absents (géocodage unique, rate-limité)
+    const hasCoords = p.lat != null && p.lon != null &&
+                      !isNaN(parseFloat(p.lat)) && !isNaN(parseFloat(p.lon));
+    if (!hasCoords && p.address) {
+      const data = await fetchNominatim(p.address);
+      if (data && data.length) {
+        p.lat = parseFloat(data[0].lat);
+        p.lon = parseFloat(data[0].lon);
+      }
+    }
+
+    // 2) write Firestore + miroir local
     const list = JSON.parse(localStorage.getItem(LS_KEY)) || [];
     if (this.online) {
       if (p.id) {
@@ -112,6 +124,197 @@ const fireSync = {
   }
 };
 
+// ----------------- Rate-limit / Cache / Normalisation géocodage -----------------
+const geoCache = new Map(); // clé: adresse normalisée -> {lat, lon, ts}
+function cacheGet(addr) { return geoCache.get(addr); }
+function cacheSet(addr, coords) { geoCache.set(addr, { ...coords, ts: Date.now() }); }
+
+// File d’attente 1 req / 1100ms (respect Nominatim)
+const geoQueue = [];
+let geoBusy = false;
+function enqueueGeo(task) {
+  return new Promise((resolve, reject) => {
+    geoQueue.push({ task, resolve, reject });
+    runGeoQueue();
+  });
+}
+async function runGeoQueue() {
+  if (geoBusy) return;
+  const item = geoQueue.shift();
+  if (!item) return;
+  geoBusy = true;
+  try {
+    const res = await item.task();
+    item.resolve(res);
+  } catch (e) {
+    item.reject(e);
+  } finally {
+    setTimeout(() => {
+      geoBusy = false;
+      runGeoQueue();
+    }, 1100);
+  }
+}
+
+// Normalisation d’adresse (FR/IT/UK/CZ/ES)
+function normalizeIntlAddress(raw) {
+  if (!raw) return "";
+  let s = String(raw).trim();
+
+  // Italie
+  s = s.replace(/\bItalie\b/i, "Italy")
+       .replace(/\bItalia\b/i, "Italy")
+       .replace(/\bMilano\b/i, "Milan")
+       .replace(/\b MI\b/g, ""); // enlève " MI" province (s'il est séparé)
+
+  // Tchéquie
+  s = s.replace(/\bTchéquie\b/i, "Czechia")
+       .replace(/\bRépublique tchèque\b/i, "Czechia")
+       .replace(/\bPraha\b/i, "Prague");
+
+  // Espagne
+  s = s.replace(/\bEspagne\b/i, "Spain")
+       .replace(/\bValència\b/i, "Valencia");
+
+  // UK
+  s = s.replace(/\bRoyaume-Uni\b/i, "United Kingdom")
+       .replace(/\bAngleterre\b/i, "England");
+
+  // Cas FR (Fontaine-du-Bac)
+  s = s.replace(/\bFont\b(\s+du\s+Bac\b)/i, "Fontaine$1")
+       .replace(/\bFontaine\s+du\s+Bac\b/i, "Fontaine-du-Bac");
+
+  // Nettoyage espaces
+  s = s.replace(/\s{2,}/g, " ").trim();
+  return s;
+}
+
+async function fetchNominatim(query) {
+  const q0 = normalizeIntlAddress(query);
+  if (!q0) return [];
+  const cached = cacheGet(q0);
+  if (cached) return [{ lat: cached.lat, lon: cached.lon }];
+
+  const base = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1&accept-language=fr,it,en&q=';
+  const url = base + encodeURIComponent(q0);
+  const proxied = `https://proxy-logikart.samir-mouheb.workers.dev/?url=${encodeURIComponent(url)}`;
+
+  // UNE tentative (proxy OU direct)
+  const attempt = (useProxy) => async () => {
+    const target = useProxy ? proxied : url;
+    const init = useProxy ? {} : { headers: { 'Accept': 'application/json', 'User-Agent': 'LOGIKART/1.0 (contact@logikart.app)' } };
+    const res = await fetch(target, init);
+    if (res.status === 429) throw Object.assign(new Error("Rate limited"), { code: 429 });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    if (Array.isArray(data) && data.length) {
+      const lat = parseFloat(data[0].lat), lon = parseFloat(data[0].lon);
+      if (!isNaN(lat) && !isNaN(lon)) cacheSet(q0, { lat, lon });
+      return data;
+    }
+    return [];
+  };
+
+  // Stratégie : proxy -> direct -> proxy, avec backoff
+  const tries = [
+    () => enqueueGeo(attempt(true)),
+    () => enqueueGeo(attempt(false)),
+    () => enqueueGeo(attempt(true)),
+  ];
+
+  for (let i = 0; i < tries.length; i++) {
+    try {
+      const data = await tries[i]();
+      if (data && data.length) return data;
+    } catch (e) {
+      if (e.code === 429) {
+        await new Promise(r => setTimeout(r, 1500 + i * 500)); // backoff simple
+        continue;
+      }
+    }
+  }
+  return [];
+}
+
+function buildQueries(addr) {
+  const src = normalizeIntlAddress(addr || "");
+
+  let norm = src;
+
+  // Ajoute pays par défaut si absent
+  const withCountry = /(France|Spain|Italy|Czechia|United Kingdom|England)\b/i.test(norm)
+    ? norm
+    : `${norm}, France`;
+
+  const parts = withCountry.split(",");
+  const streetCity = parts[0].trim();
+  const rest = parts.slice(1).join(",").trim();
+
+  const moved = withCountry.replace(/(\d{5})\s+([A-Za-zÀ-ÿ\-']+)/, "$2 $1");
+  const streetNoNum = streetCity.replace(/^\s*\d+\s*(bis|ter|quater)?\s*/i, "").trim();
+
+  const ter = /\b(\d+)\b(?!\s*(bis|ter|quater))/i.test(streetCity)
+    ? streetCity.replace(/\b(\d+)\b/, "$1 ter")
+    : streetCity;
+
+  return [
+    withCountry,
+    moved,
+    `${streetNoNum}, ${rest || 'France'}`,
+    `${ter}, ${rest || 'France'}`
+  ].map(s => s.replace(/\s{2,}/g, ' ').trim())
+   .filter((v, i, a) => v && a.indexOf(v) === i);
+}
+
+// ----------------- Géocodage -> Marker (utilise lat/lon si présents) -----------------
+async function geocodeAndAddToMap(provider, opts = { pan: false, open: false }) {
+  try {
+    if (!provider) return;
+
+    let lat = provider.lat != null ? parseFloat(provider.lat) : NaN;
+    let lon = provider.lon != null ? parseFloat(provider.lon) : NaN;
+
+    if (isNaN(lat) || isNaN(lon)) {
+      if (!provider.address) return;
+      const queries = buildQueries(provider.address);
+      let result = null;
+      for (const q of queries) {
+        const data = await fetchNominatim(q);
+        if (data && data.length) { result = data[0]; break; }
+      }
+      if (!result) {
+        console.warn("Géocodage introuvable pour:", provider.address);
+        const fallbackCity = /([A-Za-zÀ-ÿ'\- ]+),?\s*(France|Spain|Italy|Czechia|United Kingdom|England|Italia|Tchéquie|Espagne)/i.exec(provider.address);
+        const cityQ = fallbackCity ? normalizeIntlAddress(`${fallbackCity[1].trim()}, ${fallbackCity[2]}`) : 'France';
+        const cityTry = await fetchNominatim(cityQ);
+        if (!cityTry.length) return;
+        result = cityTry[0];
+      }
+      lat = parseFloat(result.lat);
+      lon = parseFloat(result.lon);
+      provider.lat = lat; provider.lon = lon; // enrichit en mémoire
+    }
+
+    const marker = L.marker([lat, lon])
+      .addTo(map)
+      .bindPopup(
+        `<strong>${provider.companyName || ""}</strong><br>${provider.contactName || ""}<br>${provider.email || ""}<br>${provider.phone || ""}<br><em>${provider.address || ""}</em>`
+      );
+
+    markers.push(marker);
+
+    if (opts.pan) map.setView([lat, lon], Math.max(map.getZoom(), 15));
+    if (opts.open) marker.openPopup();
+  } catch (e) {
+    console.error('[geocodeAndAddToMap error]', e);
+  }
+}
+
+function clearMarkers() {
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+}
+
 // ----------------- Formulaire prestataire -----------------
 function addProvider() {
   const modal = document.getElementById("providerFormSection");
@@ -144,13 +347,12 @@ async function handleFormSubmit(event) {
   };
 
   try {
-    const saved = await fireSync.upsert(provider);
-    // Animation uniquement lors de l’ajout manuel
-    geocodeAndAddToMap(saved, { pan: true, open: true });
+    const saved = await fireSync.upsert(provider);        // géocode ici si besoin + stocke lat/lon
+    geocodeAndAddToMap(saved, { pan: true, open: true }); // animation locale
     updateProviderList();
     const list = document.getElementById("providerList");
     if (list) list.style.display = "block";
-    fitMapToAllMarkers(); // recadre après ajout
+    fitMapToAllMarkers();
     hideForm();
   } catch (e) {
     console.error("Erreur enregistrement:", e);
@@ -158,128 +360,12 @@ async function handleFormSubmit(event) {
   }
 }
 
-// ----------------- Géocodage (Nominatim robuste) -----------------
-async function fetchNominatim(query) {
-  const q = String(query || "").replace(/\s{2,}/g, " ").trim();
-  const base = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1&accept-language=fr,en&q=';
-  const proxyUrl  = `https://proxy-logikart.samir-mouheb.workers.dev/?url=${encodeURIComponent(base + encodeURIComponent(q))}`;
-  const directUrl = base + encodeURIComponent(q);
-
-  try {
-    const r = await fetch(proxyUrl);
-    if (r.ok) {
-      const data = await r.json();
-      if (Array.isArray(data) && data.length) return data;
-    }
-  } catch (e) { console.debug('[Nominatim proxy error]', e); }
-
-  try {
-    const r2 = await fetch(directUrl, {
-      headers: { 'Accept': 'application/json', 'User-Agent': 'LOGIKART/1.0 (contact@logikart.app)' }
-    });
-    if (r2.ok) {
-      const data2 = await r2.json();
-      if (Array.isArray(data2) && data2.length) return data2;
-    }
-  } catch (e) { console.debug('[Nominatim direct error]', e); }
-
-  return [];
-}
-
-function buildQueries(addr) {
-  const src = (addr || "").trim();
-
-  // Corrections FR (Fontaine-du-Bac) + normalisation générique
-  let norm = src
-    .replace(/\bFont\b(\s+du\s+Bac\b)/i, "Fontaine$1")
-    .replace(/\bFontaine\s+du\s+Bac\b/i, "Fontaine-du-Bac")
-    .replace(/\s{2,}/g, " ").trim();
-
-  // Normalisations de pays/villes pour de meilleurs hits
-  const repl = [
-    [/Tchéquie/i, 'Czechia'],
-    [/République tchèque/i, 'Czechia'],
-    [/Praha\b/i, 'Prague'],
-    [/Espagne/i, 'Spain'],
-    [/València/i, 'Valencia'],
-    [/Royaume-Uni/i, 'United Kingdom'],
-    [/Angleterre/i, 'England'],
-  ];
-  repl.forEach(([re, val]) => { norm = norm.replace(re, val); });
-
-  const withCountry = /(France|Spain|Czechia|United Kingdom|England)\b/i.test(norm) ? norm : `${norm}, France`;
-
-  const parts = withCountry.split(",");
-  const streetCity = parts[0].trim();
-  const rest = parts.slice(1).join(",").trim();
-
-  const moved = withCountry.replace(/(\d{5})\s+([A-Za-zÀ-ÿ\-']+)/, "$2 $1");
-  const streetNoNum = streetCity.replace(/^\s*\d+\s*(bis|ter|quater)?\s*/i, "").trim();
-
-  const ter = /\b(\d+)\b(?!\s*(bis|ter|quater))/i.test(streetCity)
-    ? streetCity.replace(/\b(\d+)\b/, "$1 ter")
-    : streetCity;
-
-  return [
-    withCountry,
-    moved,
-    `${streetNoNum}, ${rest || 'France'}`,
-    `${ter}, ${rest || 'France'}`
-  ].map(s => s.replace(/\s{2,}/g, ' ').trim())
-   .filter((v, i, a) => v && a.indexOf(v) === i);
-}
-
-async function geocodeAndAddToMap(provider, opts = { pan: false, open: false }) {
-  try {
-    if (!provider?.address) return;
-
-    const queries = buildQueries(provider.address);
-    let result = null;
-
-    for (const q of queries) {
-      const data = await fetchNominatim(q);
-      if (data && data.length) { result = data[0]; break; }
-    }
-
-    if (!result) {
-      console.warn("Géocodage introuvable pour:", provider.address);
-      const fallbackCity = /([A-Za-zÀ-ÿ'\- ]+),?\s*(France|Spain|Czechia|United Kingdom|England)/i.exec(provider.address);
-      const cityQ = fallbackCity ? `${fallbackCity[1].trim()}, ${fallbackCity[2]}` : 'France';
-      const cityTry = await fetchNominatim(cityQ);
-      if (!cityTry.length) return;
-      result = cityTry[0];
-    }
-
-    const lat = parseFloat(result.lat);
-    const lon = parseFloat(result.lon);
-
-    const marker = L.marker([lat, lon])
-      .addTo(map)
-      .bindPopup(
-        `<strong>${provider.companyName || ""}</strong><br>${provider.contactName || ""}<br>${provider.email || ""}<br>${provider.phone || ""}<br><em>${provider.address || ""}</em>`
-      );
-
-    markers.push(marker);
-
-    // 👉 On n'anime QUE si demandé (pas pendant les chargements en lot)
-    if (opts.pan) map.setView([lat, lon], Math.max(map.getZoom(), 15));
-    if (opts.open) marker.openPopup();
-  } catch (e) {
-    console.error('[geocodeAndAddToMap error]', e);
-  }
-}
-
-function clearMarkers() {
-  markers.forEach(m => map.removeLayer(m));
-  markers = [];
-}
-
 // ----------------- Recherche de prestataire proche -----------------
 async function searchNearest() {
   const city = document.getElementById("cityInput").value.trim();
   if (!city) return;
 
-  const cityData = await fetchNominatim(/(France|Spain|Czechia|United Kingdom|England)/i.test(city) ? city : `${city}, France`);
+  const cityData = await fetchNominatim(/(France|Spain|Italy|Czechia|United Kingdom|England)/i.test(city) ? city : `${city}, France`);
   if (!cityData.length) { alert("Ville non trouvée."); return; }
 
   const userLat = parseFloat(cityData[0].lat);
@@ -291,14 +377,17 @@ async function searchNearest() {
   let minDistance = Infinity;
 
   for (const provider of providers) {
-    const data = await fetchNominatim(provider.address || "");
-    if (!data.length) continue;
-    const lat = parseFloat(data[0].lat);
-    const lon = parseFloat(data[0].lon);
-    const distance = Math.sqrt(Math.pow(lat - userLat, 2) + Math.pow(lon - userLon, 2));
+    let plat = provider.lat, plon = provider.lon;
+    if (plat == null || plon == null) {
+      const data = await fetchNominatim(provider.address || "");
+      if (!data.length) continue;
+      plat = parseFloat(data[0].lat);
+      plon = parseFloat(data[0].lon);
+    }
+    const distance = Math.sqrt(Math.pow(plat - userLat, 2) + Math.pow(plon - userLon, 2));
     if (distance < minDistance) {
       minDistance = distance;
-      nearest = { ...provider, lat, lon };
+      nearest = { ...provider, lat: plat, lon: plon };
     }
   }
 
@@ -387,7 +476,7 @@ function exportProviders(format = "json") {
   const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
   if (!providers.length) { alert("Aucun prestataire à exporter."); return; }
 
-  const headers = ["id","companyName","contactName","firstName","address","email","phone","rate","travelFees","totalCost"];
+  const headers = ["id","companyName","contactName","firstName","address","email","phone","rate","travelFees","totalCost","lat","lon"];
 
   if (format === "json") {
     const blob = new Blob([JSON.stringify(providers, null, 2)], { type: "application/json" });
@@ -441,7 +530,9 @@ function normalizeProvider(obj) {
     rate:        norm(obj.rate        ?? obj.tarifHeureHT),
     travelFees:  norm(obj.travelFees  ?? obj.fraisDeplacementHT),
     totalCost:   norm(obj.totalCost   ?? obj.tarifTotalHT),
-    id:          norm(obj.id)
+    id:          norm(obj.id),
+    lat:         obj.lat !== undefined ? obj.lat : undefined,
+    lon:         obj.lon !== undefined ? obj.lon : undefined
   };
   if (!p.totalCost) {
     const r = parseFloat(num(p.rate)) || 0;
@@ -492,6 +583,8 @@ function parseCSVToObjects(text) {
     else if (n.includes("fraisdeplacement") || n === "travelfees") headerMap[i] = "travelFees";
     else if (n.includes("tariftotal") || n === "totalcost") headerMap[i] = "totalCost";
     else if (n === "id") headerMap[i] = "id";
+    else if (n === "lat" || n === "latitude") headerMap[i] = "lat";
+    else if (n === "lon" || n === "lng" || n === "longitude") headerMap[i] = "lon";
   });
 
   const rows = [];
@@ -540,7 +633,7 @@ async function handleImport() {
         results.skipped++;
       } else {
         const merged = match ? { ...match, ...p, id: match.id } : p;
-        const saved = await fireSync.upsert(merged);
+        const saved = await fireSync.upsert(merged); // géocode ici si coords manquantes
         if (match) results.updated++; else results.added++;
         byKey.set(keyOf(saved), saved);
       }
@@ -558,6 +651,96 @@ async function handleImport() {
 - ${results.skipped} ignorés
 - ${results.errors} erreurs`);
   closeImportModal();
+}
+
+// ----------------- Itinéraire -----------------
+function openItineraryTool() { const m = document.getElementById("itineraryModal"); if (m) m.style.display = "flex"; document.getElementById("routeResult").innerHTML = ""; }
+function closeItineraryModal() { const m = document.getElementById("itineraryModal"); if (m) m.style.display = "none"; document.getElementById("itineraryForm").reset(); document.getElementById("extraDestinations").innerHTML = ""; }
+function addDestinationField() { const c = document.getElementById("extraDestinations"); const i = document.createElement("input"); i.type = "text"; i.placeholder = "Destination supplémentaire"; i.classList.add("extra-destination"); c.appendChild(i); }
+
+async function calculateRoute() {
+  try {
+    const start = document.getElementById("startAddress").value.trim();
+    const end = document.getElementById("endAddress").value.trim();
+    const extras = Array.from(document.getElementsByClassName("extra-destination")).map(input => input.value.trim()).filter(Boolean);
+    const points = [start, ...extras, end];
+    const coords = [];
+
+    for (const address of points) {
+      const data = await fetchNominatim(/(France|Spain|Italy|Czechia|United Kingdom|England)/i.test(address) ? address : `${address}, France`);
+      if (!data.length) { alert(`Adresse non trouvée : ${address}`); return; }
+      coords.push([parseFloat(data[0].lon), parseFloat(data[0].lat)]); // ORS = [lon, lat]
+    }
+
+    const orsRes = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ4YTg5NTg4NjE0OTQ5NjZhMDY3YzgxZjJjOGE3ODI3IiwiaCI6Im11cm11cjY0In0=',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ coordinates: coords, language: "fr", instructions: true })
+    });
+
+    if (!orsRes.ok) { alert("Erreur lors du calcul d’itinéraire."); return; }
+
+    const geojson = await orsRes.json();
+    window.lastRouteInstructions = geojson.features[0].properties.segments[0].steps.map((step, i) =>
+      `${i + 1}. ${step.instruction} (${(step.distance / 1000).toFixed(2)} km)`
+    );
+
+    if (window.routeLine) map.removeLayer(window.routeLine);
+    window.routeLine = L.geoJSON(geojson, { style: { color: "blue", weight: 4 } }).addTo(map);
+    map.fitBounds(window.routeLine.getBounds());
+
+    const summary = geojson.features[0].properties.summary;
+    const distanceKm = (summary.distance / 1000).toFixed(2);
+    const durationMin = Math.round(summary.duration / 60);
+
+    document.getElementById("routeResult").innerHTML = `
+      <p>📏 Distance totale : <strong>${distanceKm} km</strong></p>
+      <p>⏱️ Durée estimée : <strong>${durationMin} minutes</strong></p>
+    `;
+    document.getElementById("exportPdfBtn").style.display = "inline-block";
+  } catch (e) {
+    console.error('[calculateRoute error]', e);
+    alert("Une erreur est survenue pendant le calcul d’itinéraire.");
+  }
+}
+
+function exportItineraryToPDF() {
+  const start = document.getElementById("startAddress").value.trim();
+  const end = document.getElementById("endAddress").value.trim();
+  const extras = Array.from(document.getElementsByClassName("extra-destination")).map(i => i.value.trim()).filter(Boolean);
+  const distanceText = document.querySelector("#routeResult").innerText;
+
+  leafletImage(map, function (err, canvas) {
+    if (err) { alert("Erreur lors du rendu de la carte."); return; }
+    const mapImage = canvas.toDataURL("image/jpeg");
+
+    const container = document.createElement("div");
+    container.style.padding = "20px";
+    container.style.fontFamily = "Arial";
+    container.innerHTML = `
+      <h2 style="color:#004080;">🧭 Itinéraire LOGIKART</h2>
+      <p><strong>Départ :</strong> ${start}</p>
+      ${extras.map((dest, i) => `<p><strong>Étape ${i + 1} :</strong> ${dest}</p>`).join("")}
+      <p><strong>Arrivée :</strong> ${end}</p>
+      <p style="margin-top:10px;">${distanceText.replace(/\n/g, "<br>")}</p>
+      <hr>
+      <p><strong>Carte de l’itinéraire :</strong></p>
+      <img src="${mapImage}" style="width:100%; max-height:500px; margin-top:10px;" />
+    `;
+    if (window.lastRouteInstructions && window.lastRouteInstructions.length) {
+      const instructionsHtml = window.lastRouteInstructions.map(i => `<li>${i}</li>`).join("");
+      container.innerHTML += `<p><strong>🧭 Instructions pas à pas :</strong></p><ol>${instructionsHtml}</ol>`;
+    }
+
+    html2pdf().set({
+      margin: 0.5, filename: 'itineraire_LOGIKART.pdf',
+      image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 },
+      jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
+    }).from(container).save();
+  });
 }
 
 // ----------------- Menu / init -----------------
@@ -743,96 +926,6 @@ function populateTechnicianSuggestions() {
     const option = document.createElement("option");
     option.value = `${p.firstName || ""} ${p.contactName || ""}`.trim();
     datalist.appendChild(option);
-  });
-}
-
-// ----------------- Itinéraire -----------------
-function openItineraryTool() { const m = document.getElementById("itineraryModal"); if (m) m.style.display = "flex"; document.getElementById("routeResult").innerHTML = ""; }
-function closeItineraryModal() { const m = document.getElementById("itineraryModal"); if (m) m.style.display = "none"; document.getElementById("itineraryForm").reset(); document.getElementById("extraDestinations").innerHTML = ""; }
-function addDestinationField() { const c = document.getElementById("extraDestinations"); const i = document.createElement("input"); i.type = "text"; i.placeholder = "Destination supplémentaire"; i.classList.add("extra-destination"); c.appendChild(i); }
-
-async function calculateRoute() {
-  try {
-    const start = document.getElementById("startAddress").value.trim();
-    const end = document.getElementById("endAddress").value.trim();
-    const extras = Array.from(document.getElementsByClassName("extra-destination")).map(input => input.value.trim()).filter(Boolean);
-    const points = [start, ...extras, end];
-    const coords = [];
-
-    for (const address of points) {
-      const data = await fetchNominatim(/(France|Spain|Czechia|United Kingdom|England)/i.test(address) ? address : `${address}, France`);
-      if (!data.length) { alert(`Adresse non trouvée : ${address}`); return; }
-      coords.push([parseFloat(data[0].lon), parseFloat(data[0].lat)]); // ORS = [lon, lat]
-    }
-
-    const orsRes = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ4YTg5NTg4NjE0OTQ5NjZhMDY3YzgxZjJjOGE3ODI3IiwiaCI6Im11cm11cjY0In0=',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ coordinates: coords, language: "fr", instructions: true })
-    });
-
-    if (!orsRes.ok) { alert("Erreur lors du calcul d’itinéraire."); return; }
-
-    const geojson = await orsRes.json();
-    window.lastRouteInstructions = geojson.features[0].properties.segments[0].steps.map((step, i) =>
-      `${i + 1}. ${step.instruction} (${(step.distance / 1000).toFixed(2)} km)`
-    );
-
-    if (window.routeLine) map.removeLayer(window.routeLine);
-    window.routeLine = L.geoJSON(geojson, { style: { color: "blue", weight: 4 } }).addTo(map);
-    map.fitBounds(window.routeLine.getBounds());
-
-    const summary = geojson.features[0].properties.summary;
-    const distanceKm = (summary.distance / 1000).toFixed(2);
-    const durationMin = Math.round(summary.duration / 60);
-
-    document.getElementById("routeResult").innerHTML = `
-      <p>📏 Distance totale : <strong>${distanceKm} km</strong></p>
-      <p>⏱️ Durée estimée : <strong>${durationMin} minutes</strong></p>
-    `;
-    document.getElementById("exportPdfBtn").style.display = "inline-block";
-  } catch (e) {
-    console.error('[calculateRoute error]', e);
-    alert("Une erreur est survenue pendant le calcul d’itinéraire.");
-  }
-}
-
-function exportItineraryToPDF() {
-  const start = document.getElementById("startAddress").value.trim();
-  const end = document.getElementById("endAddress").value.trim();
-  const extras = Array.from(document.getElementsByClassName("extra-destination")).map(i => i.value.trim()).filter(Boolean);
-  const distanceText = document.querySelector("#routeResult").innerText;
-
-  leafletImage(map, function (err, canvas) {
-    if (err) { alert("Erreur lors du rendu de la carte."); return; }
-    const mapImage = canvas.toDataURL("image/jpeg");
-
-    const container = document.createElement("div");
-    container.style.padding = "20px";
-    container.style.fontFamily = "Arial";
-    container.innerHTML = `
-      <h2 style="color:#004080;">🧭 Itinéraire LOGIKART</h2>
-      <p><strong>Départ :</strong> ${start}</p>
-      ${extras.map((dest, i) => `<p><strong>Étape ${i + 1} :</strong> ${dest}</p>`).join("")}
-      <p><strong>Arrivée :</strong> ${end}</p>
-      <p style="margin-top:10px;">${distanceText.replace(/\n/g, "<br>")}</p>
-      <hr>
-      <p><strong>Carte de l’itinéraire :</strong></p>
-      <img src="${mapImage}" style="width:100%; max-height:500px; margin-top:10px;" />
-    `;
-    if (window.lastRouteInstructions && window.lastRouteInstructions.length) {
-      const instructionsHtml = window.lastRouteInstructions.map(i => `<li>${i}</li>`).join("");
-      container.innerHTML += `<p><strong>🧭 Instructions pas à pas :</strong></p><ol>${instructionsHtml}</ol>`;
-    }
-
-    html2pdf().set({
-      margin: 0.5, filename: 'itineraire_LOGIKART.pdf',
-      image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 },
-      jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
-    }).from(container).save();
   });
 }
 
