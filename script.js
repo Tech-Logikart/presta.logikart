@@ -830,6 +830,201 @@ function exportItineraryToPDF() {
   });
 }
 
+// ----------------- Rapport d’intervention (impression & PDF robustes) -----------------
+function buildReportHTML(values) {
+  return `
+    <div style="font-family: Arial, sans-serif; padding: 20px; color: #000;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #004080; padding-bottom: 10px;">
+        <img src="logikart-logo.png" alt="LOGIKART" style="height: 50px;">
+        <h2 style="text-align: center; flex-grow: 1; color: #004080;">Rapport d’intervention</h2>
+        <div style="text-align: right; font-size: 12px;">${values.date || ""}</div>
+      </div>
+
+      <div style="margin-top: 20px;">
+        <p><strong>Ticket :</strong> ${values.ticket || ""}</p>
+        <p><strong>Adresse du site :</strong> ${values.site || ""}</p>
+        <p><strong>Nom du technicien :</strong> ${values.tech || ""}</p>
+      </div>
+
+      <div style="margin-top: 20px;">
+        <h4>Travail à faire</h4>
+        <div style="border: 1px solid #ccc; padding: 10px; min-height: 60px;">${values.todo || ""}</div>
+      </div>
+
+      <div style="margin-top: 20px;">
+        <h4>Travail effectué</h4>
+        <div style="border: 1px solid #ccc; padding: 10px; min-height: 80px;">${values.done || ""}</div>
+      </div>
+
+      <div style="margin-top: 20px;">
+        <p><strong>Heure d’arrivée :</strong> ${values.start || ""}</p>
+        <p><strong>Heure de départ :</strong> ${values.end || ""}</p>
+      </div>
+
+      <div style="margin-top: 20px; display: flex; justify-content: space-between;">
+        <div style="width: 48%;">
+          <p><strong>Signature du technicien :</strong></p>
+          <div style="border: 1px solid #ccc; height: 60px;"></div>
+          <p style="text-align: center; margin-top: 5px;">${values.signTech || ""}</p>
+        </div>
+        <div style="width: 48%;">
+          <p><strong>Signature du client :</strong></p>
+          <div style="border: 1px solid #ccc; height: 60px;"></div>
+          <p style="text-align: center; margin-top: 5px;">${values.signClient || ""}</p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function openReportForm() {
+  const modal = document.getElementById("reportModal");
+  if (!modal) return;
+  modal.style.display = "flex";
+
+  const form = document.getElementById("reportForm");
+  const get = id => form.querySelector(`[name="${id}"]`) || form.querySelector(`#${id}`);
+
+  const values = {
+    ticket: get("ticket")?.value || "",
+    date: get("interventionDate")?.value || "",
+    site: get("siteAddress")?.value || "",
+    tech: get("technician")?.value || "",
+    todo: get("todo")?.value || "",
+    done: get("done")?.value || "",
+    start: get("start")?.value || "",
+    end: get("end")?.value || "",
+    signTech: get("signTech")?.value || "",
+    signClient: get("signClient")?.value || ""
+  };
+
+  const reportContent = document.getElementById("reportContent");
+  if (reportContent) {
+    reportContent.innerHTML = buildReportHTML(values);
+    reportContent.style.display = "block";
+  }
+
+  populateTechnicianSuggestions();
+}
+function closeReportForm() { const modal = document.getElementById("reportModal"); if (modal) modal.style.display = "none"; }
+
+function printReport() {
+  const form = document.getElementById("reportForm");
+  const get = id => form.querySelector(`[name="${id}"]`) || form.querySelector(`#${id}`);
+  const values = {
+    ticket: get("ticket")?.value,
+    date: get("interventionDate")?.value,
+    site: get("siteAddress")?.value,
+    tech: get("technician")?.value,
+    todo: get("todo")?.value,
+    done: get("done")?.value,
+    start: get("start")?.value,
+    end: get("end")?.value,
+    signTech: get("signTech")?.value,
+    signClient: get("signClient")?.value
+  };
+
+  const html = buildReportHTML(values);
+  const w = window.open('', '_blank');
+  w.document.open();
+  w.document.write(`
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Rapport d’intervention</title>
+        <style>
+          @page { size: A4; margin: 12mm; }
+          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          h2 { margin: 0; }
+        </style>
+      </head>
+      <body>${html}</body>
+    </html>
+  `);
+  w.document.close();
+  w.focus();
+
+  const imgs = Array.from(w.document.images);
+  const waitImgs = Promise.all(imgs.map(img => img.complete ? Promise.resolve() :
+    new Promise(res => img.onload = img.onerror = res)
+  ));
+  waitImgs.then(() => {
+    w.print();
+    // w.close(); // décommente si tu veux fermer l’onglet automatiquement
+  });
+}
+
+function generatePDF() {
+  const form = document.getElementById("reportForm");
+  const get = id => form.querySelector(`[name="${id}"]`) || form.querySelector(`#${id}`);
+  const values = {
+    ticket: get("ticket")?.value,
+    date: get("interventionDate")?.value,
+    site: get("siteAddress")?.value,
+    tech: get("technician")?.value,
+    todo: get("todo")?.value,
+    done: get("done")?.value,
+    start: get("start")?.value,
+    end: get("end")?.value,
+    signTech: get("signTech")?.value,
+    signClient: get("signClient")?.value
+  };
+
+  // Si html2pdf n’est pas présent → fallback impression
+  if (typeof html2pdf === "undefined") {
+    console.warn("[PDF] html2pdf non trouvé, fallback impression");
+    printReport();
+    return;
+  }
+
+  // conteneur visible (offscreen) pour html2canvas/html2pdf
+  const temp = document.createElement("div");
+  temp.style.position = "fixed";
+  temp.style.left = "-10000px"; // hors écran mais rendu
+  temp.style.top = "0";
+  temp.style.width = "794px";   // ~ A4 @96dpi
+  temp.style.background = "#fff";
+  temp.innerHTML = buildReportHTML(values);
+  document.body.appendChild(temp);
+
+  // attendre les images (logo) avant rendu
+  const imgs = Array.from(temp.querySelectorAll("img"));
+  const waitImgs = Promise.all(imgs.map(img => img.complete ? Promise.resolve() :
+    new Promise(res => img.onload = img.onerror = res)
+  ));
+
+  waitImgs.then(() => {
+    html2pdf().set({
+      margin: 0.5,
+      filename: 'rapport_intervention_LOGIKART.pdf',
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true, allowTaint: true },
+      jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
+    }).from(temp).save()
+      .then(() => {
+        temp.remove();
+        // form.reset(); closeReportForm(); // optionnel
+      })
+      .catch(err => {
+        console.error("[PDF] erreur", err);
+        temp.remove();
+        printReport(); // fallback impression si canvas/images bloqués
+      });
+  });
+}
+
+function populateTechnicianSuggestions() {
+  const datalist = document.getElementById("technicianList");
+  if (!datalist) return;
+  datalist.innerHTML = "";
+  const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+  providers.forEach(p => {
+    const option = document.createElement("option");
+    option.value = `${p.firstName || ""} ${p.contactName || ""}`.trim();
+    datalist.appendChild(option);
+  });
+}
+
 // ----------------- Menu / init + Backfill coords -----------------
 document.addEventListener("DOMContentLoaded", async () => {
   // Forçage position burger en haut à droite (au cas où le CSS n'est pas chargé)
@@ -901,6 +1096,7 @@ window.exportItineraryToPDF = exportItineraryToPDF;
 window.openReportForm = openReportForm;
 window.closeReportForm = closeReportForm;
 window.generatePDF = generatePDF;
+window.printReport = printReport;
 
 window.editProvider = editProvider;
 window.deleteProvider = window.deleteProvider; // déjà défini
