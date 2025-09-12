@@ -14,28 +14,34 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
 
+  <!-- Patchs pour un burger toujours cliquable -->
   <style>
-    /* Header toujours visible et au-dessus de la carte */
+    /* Header visuel (logo + titre) */
     header {
       position: sticky; top: 0; z-index: 3000;
       background: #004080; color: #fff;
       padding: 20px 12px 12px;
       display: flex; flex-direction: column; align-items: center; gap: 10px;
+      text-align: center;
     }
-    /* Burger et menu au-dessus des panes Leaflet */
+
+    /* Burger fixé au-dessus de tout (même la carte) */
     #burgerMenu{
-      position: absolute; top: 12px; right: 12px; z-index: 4001;
+      position: fixed !important; top:12px !important; right:12px !important;
       user-select:none; cursor:pointer; font-size:20px;
       background:#fff; color:#000; border:1px solid #eee; border-radius:8px;
-      padding:6px 10px; line-height:1; box-shadow:0 6px 20px rgba(0,0,0,.08);
+      padding:6px 10px; line-height:1; z-index: 99999 !important;
+      box-shadow:0 6px 20px rgba(0,0,0,.08);
     }
     #menuDropdown{
-      position:absolute; top:48px; right:12px; display:none; z-index:4000;
+      position: fixed !important; top:56px !important; right:12px !important;
+      display:none; z-index: 99998 !important;
       background:#fff; border:1px solid #eee; border-radius:8px;
       padding:6px 0; min-width:240px; box-shadow:0 6px 20px rgba(0,0,0,.12);
     }
     #menuDropdown ul{ list-style:none; margin:0; padding:0; }
     #menuDropdown li{ padding:10px 14px; cursor:pointer; }
+    #menuDropdown li:hover{ background:#f6f6f6; }
     #menuDropdown li.divider{ border-top:1px solid #eee; margin:6px 0 0 0; padding:0; }
 
     body, html { height:100%; }
@@ -56,24 +62,25 @@
 </head>
 
 <body>
+  <!-- En-tête (logo + titre) -->
   <header>
     <img src="logikart-logo.png" alt="LOGIKART" style="height:60px;" />
-    <h1 style="margin:0; text-align:center;">LOGIKART - Réseau de prestataires informatiques</h1>
-
-    <!-- Menu burger -->
-    <div id="burgerMenu" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false" aria-controls="menuDropdown">☰</div>
-    <div id="menuDropdown">
-      <ul>
-        <li onclick="toggleProviderList()">📋 Prestataires</li>
-        <li onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
-        <li onclick="openReportForm()">📝 Imprimer rapport d’intervention</li>
-        <li class="divider"></li>
-        <li onclick="exportProviders('json')">⬇️ Exporter (JSON)</li>
-        <li onclick="exportProviders('csv')">⬇️ Exporter (CSV)</li>
-        <li onclick="openImportModal()">⬆️ Importer</li>
-      </ul>
-    </div>
+    <h1 style="margin:0;">LOGIKART - Réseau de prestataires informatiques</h1>
   </header>
+
+  <!-- Burger (en dehors du header pour éviter les stacking contexts) -->
+  <div id="burgerMenu" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false" aria-controls="menuDropdown">☰</div>
+  <div id="menuDropdown">
+    <ul>
+      <li onclick="toggleProviderList()">📋 Prestataires</li>
+      <li onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
+      <li onclick="openReportForm()">📝 Imprimer rapport d’intervention</li>
+      <li class="divider"></li>
+      <li onclick="exportProviders('json')">⬇️ Exporter (JSON)</li>
+      <li onclick="exportProviders('csv')">⬇️ Exporter (CSV)</li>
+      <li onclick="openImportModal()">⬆️ Importer</li>
+    </ul>
+  </div>
 
   <!-- Barre d’action -->
   <section style="padding:10px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
@@ -219,6 +226,7 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
     const auth = firebase.auth();
+    // Exposé pour script.js
     window.db = db;
 
     // Promise d’auth anonyme utilisée par script.js
@@ -239,7 +247,7 @@
     })();
   </script>
 
-  <!-- PDF & rendu de carte (pour itinéraires / rapport) -->
+  <!-- PDF & rendu de carte (pour itinéraire PDF) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
@@ -258,20 +266,24 @@
         burger.setAttribute('aria-expanded', 'false');
       }
       function toggleMenu(e) {
-        e?.stopPropagation();
+        if (e) e.stopPropagation(); // évite la fermeture immédiate
         const open = dropdown.style.display === 'block';
         dropdown.style.display = open ? 'none' : 'block';
         burger.setAttribute('aria-expanded', String(!open));
       }
 
-      burger.addEventListener('click', toggleMenu);
-      burger.addEventListener('keydown', (e) => {
+      // Nettoie d'éventuels anciens listeners
+      burger.replaceWith(burger.cloneNode(true));
+      const newBurger = document.getElementById('burgerMenu');
+
+      newBurger.addEventListener('click', toggleMenu);
+      newBurger.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleMenu(e); }
       });
-      document.addEventListener('click', (e) => {
-        if (!dropdown.contains(e.target) && e.target !== burger) closeMenu();
-      });
       dropdown.addEventListener('click', (e) => e.stopPropagation());
+      document.addEventListener('click', (e) => {
+        if (!dropdown.contains(e.target) && e.target !== newBurger) closeMenu();
+      });
       document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
     })();
   </script>
