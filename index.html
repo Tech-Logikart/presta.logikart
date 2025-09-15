@@ -14,44 +14,48 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
 
-  <!-- Patchs burger : toujours cliquable, au-dessus de tout -->
+  <!-- Styles correctifs -->
   <style>
+    /* En-tête */
     header {
       position: sticky; top: 0; z-index: 3000;
       background: #004080; color: #fff;
       padding: 20px 12px 12px;
-      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
       text-align: center;
     }
-    /* Burger fixé en haut-droite, pointer-events activés */
+    header h1 { margin: 0; font-size: 20px; font-weight: 600; }
+
+    /* Burger TOUJOURS au-dessus */
     #burgerMenu{
       position: fixed !important; top:12px !important; right:12px !important;
       user-select:none; cursor:pointer; font-size:20px;
       background:#fff; color:#000; border:1px solid #eee; border-radius:8px;
-      padding:6px 10px; line-height:1; z-index: 2147483647 !important; /* max */
+      padding:6px 10px; line-height:1; z-index: 2147483647 !important;
       box-shadow:0 6px 20px rgba(0,0,0,.08);
-      pointer-events: auto !important;
     }
     #menuDropdown{
       position: fixed !important; top:56px !important; right:12px !important;
       display:none; z-index: 2147483646 !important;
       background:#fff; border:1px solid #eee; border-radius:8px;
       padding:6px 0; min-width:240px; box-shadow:0 6px 20px rgba(0,0,0,.12);
-      pointer-events: auto !important;
     }
     #menuDropdown ul{ list-style:none; margin:0; padding:0; }
     #menuDropdown li{ padding:10px 14px; cursor:pointer; }
     #menuDropdown li:hover{ background:#f6f6f6; }
     #menuDropdown li.divider{ border-top:1px solid #eee; margin:6px 0 0 0; padding:0; }
 
+    /* Carte & page */
     body, html { height:100%; }
     #map { width:100%; height:80vh; }
 
-    /* La liste des prestataires : visible quand toggle -> block */
+    /* Panneau Prestataires : panneau latéral fixe (au lieu du bas de page) */
     #providerList {
-      display:none; max-height:50vh; overflow:auto; padding:12px;
-      background:#fff; border:1px solid #ddd; border-radius:8px; margin:12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,.1);
+      display:none;
+      position: fixed; top: 120px; right: 12px; z-index: 3500;
+      width: min(380px, 92vw); max-height: 60vh; overflow:auto;
+      background:#fff; border:1px solid #ddd; border-radius:10px; padding:12px;
+      box-shadow: 0 10px 24px rgba(0,0,0,.18);
     }
 
     /* Modals génériques */
@@ -65,21 +69,24 @@
     }
     .form-buttons{ display:flex; gap:8px; flex-wrap:wrap; }
 
-    /* Mise en page Itinéraire : bouton sur sa propre ligne */
-    #itineraryForm .row { display:flex; gap:8px; flex-wrap:wrap; }
+    /* Mise en page Itinéraire : boutons sur la même ligne */
+    #itineraryForm .controls-row {
+      display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:flex-end;
+      margin-top: 10px;
+    }
+    #itineraryForm .controls-row > button { flex: 0 0 auto; }
     #itineraryForm .full { width:100%; }
-    #addStepBtn { display:block; margin:8px 0; }
   </style>
 </head>
 
 <body>
-  <!-- En-tête (logo + titre) -->
+  <!-- En-tête -->
   <header>
     <img src="logikart-logo.png" alt="LOGIKART" style="height:60px;" />
-    <h1 style="margin:0;">LOGIKART - Réseau de prestataires informatiques</h1>
+    <h1>LOGIKART - Carte des Prestataires</h1>
   </header>
 
-  <!-- Burger (autonome) -->
+  <!-- Burger -->
   <div
     id="burgerMenu"
     role="button"
@@ -102,36 +109,19 @@
     </ul>
   </div>
 
-  <!-- Script DU BURGER (autonome, placé ici pour fonctionner même si d'autres scripts plantent) -->
+  <!-- Script DU BURGER (autonome) -->
   <script>
     (function () {
       const burger = document.getElementById('burgerMenu');
       const dropdown = document.getElementById('menuDropdown');
-
-      function closeMenu() {
-        dropdown.style.display = 'none';
-        burger.setAttribute('aria-expanded', 'false');
-      }
-      function toggleMenu(e) {
-        if (e) e.stopPropagation(); // évite la fermeture immédiate
-        const open = dropdown.style.display === 'block';
-        dropdown.style.display = open ? 'none' : 'block';
-        burger.setAttribute('aria-expanded', String(!open));
-      }
-
-      // Expose une fonction globale pour l'attribut onclick inline (fallback)
+      function closeMenu(){ dropdown.style.display='none'; burger.setAttribute('aria-expanded','false'); }
+      function toggleMenu(e){ if(e) e.stopPropagation(); const open=dropdown.style.display==='block'; dropdown.style.display=open?'none':'block'; burger.setAttribute('aria-expanded', String(!open)); }
       window.__toggleMenu = toggleMenu;
-
-      // Écouteurs standards
       burger.addEventListener('click', toggleMenu);
-      burger.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleMenu(e); }
-      });
-      dropdown.addEventListener('click', (e) => e.stopPropagation());
-      document.addEventListener('click', (e) => {
-        if (!dropdown.contains(e.target) && e.target !== burger) closeMenu();
-      });
-      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+      burger.addEventListener('keydown', (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggleMenu(e);} });
+      dropdown.addEventListener('click', (e)=> e.stopPropagation());
+      document.addEventListener('click', (e)=>{ if(!dropdown.contains(e.target) && e.target!==burger) closeMenu(); });
+      document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeMenu(); });
     })();
   </script>
 
@@ -145,7 +135,7 @@
   <!-- Carte -->
   <div id="map"></div>
 
-  <!-- Liste des prestataires -->
+  <!-- Panneau Prestataires -->
   <aside id="providerList"></aside>
 
   <!-- ===== Modal Prestataire ===== -->
@@ -218,7 +208,7 @@
     </div>
   </div>
 
-  <!-- ===== Modal Itinéraire (mise en page corrigée) ===== -->
+  <!-- ===== Modal Itinéraire (boutons côte à côte) ===== -->
   <div id="itineraryModal" class="modal">
     <div class="modal-content">
       <span class="close" onclick="closeItineraryModal()">×</span>
@@ -229,12 +219,11 @@
 
         <div id="extraDestinations" class="full"></div>
 
-        <button id="addStepBtn" class="full" type="button" onclick="addDestinationField()">➕ Ajouter une étape</button>
-
         <label class="full">Adresse de destination :</label>
         <input class="full" type="text" id="endAddress" required />
 
-        <div class="form-buttons">
+        <div class="controls-row">
+          <button id="addStepBtn" type="button" onclick="addDestinationField()">➕ Ajouter une étape</button>
           <button type="button" onclick="calculateRoute()">🚗 Calculer l’itinéraire</button>
           <button id="exportPdfBtn" type="button" onclick="exportItineraryToPDF()" style="display:none;">📄 Exporter en PDF</button>
         </div>
@@ -305,7 +294,7 @@
   </script>
 
   <!-- PDF & rendu de carte -->
-  <!-- ⚠️ Garder UNIQUEMENT html2pdf.bundle (n'ajoute pas html2canvas séparé, sinon PDF blanc) -->
+  <!-- ⚠️ Garder UNIQUEMENT html2pdf.bundle (n’ajoute pas html2canvas séparé, sinon PDF blanc) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
 
