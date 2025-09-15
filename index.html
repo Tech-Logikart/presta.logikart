@@ -256,36 +256,6 @@
   <script src="script.js"></script>
 
   <!-- Gestion du burger (clic + clavier + fermeture extérieure) -->
-  <script>
-    (function () {
-      const burger = document.getElementById('burgerMenu');
-      const dropdown = document.getElementById('menuDropdown');
-
-      function closeMenu() {
-        dropdown.style.display = 'none';
-        burger.setAttribute('aria-expanded', 'false');
-      }
-      function toggleMenu(e) {
-        if (e) e.stopPropagation(); // évite la fermeture immédiate
-        const open = dropdown.style.display === 'block';
-        dropdown.style.display = open ? 'none' : 'block';
-        burger.setAttribute('aria-expanded', String(!open));
-      }
-
-      // Nettoie d'éventuels anciens listeners
-      burger.replaceWith(burger.cloneNode(true));
-      const newBurger = document.getElementById('burgerMenu');
-
-      newBurger.addEventListener('click', toggleMenu);
-      newBurger.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleMenu(e); }
-      });
-      dropdown.addEventListener('click', (e) => e.stopPropagation());
-      document.addEventListener('click', (e) => {
-        if (!dropdown.contains(e.target) && e.target !== newBurger) closeMenu();
-      });
-      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
-    })();
-  </script>
+  
 </body>
 </html>
