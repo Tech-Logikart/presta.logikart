@@ -46,7 +46,13 @@
 
     body, html { height:100%; }
     #map { width:100%; height:80vh; }
-    #providerList { display:none; max-height:50vh; overflow:auto; padding:12px; }
+
+    /* La liste des prestataires : visible quand toggle -> block */
+    #providerList {
+      display:none; max-height:50vh; overflow:auto; padding:12px;
+      background:#fff; border:1px solid #ddd; border-radius:8px; margin:12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,.1);
+    }
 
     /* Modals génériques */
     .modal, .modal-overlay {
@@ -58,6 +64,11 @@
       max-width:720px; width:min(92vw,720px); max-height:85vh; overflow:auto;
     }
     .form-buttons{ display:flex; gap:8px; flex-wrap:wrap; }
+
+    /* Mise en page Itinéraire : bouton sur sa propre ligne */
+    #itineraryForm .row { display:flex; gap:8px; flex-wrap:wrap; }
+    #itineraryForm .full { width:100%; }
+    #addStepBtn { display:block; margin:8px 0; }
   </style>
 </head>
 
@@ -68,7 +79,7 @@
     <h1 style="margin:0;">LOGIKART - Réseau de prestataires informatiques</h1>
   </header>
 
-  <!-- Burger AUTONOME (script juste après) -->
+  <!-- Burger (autonome) -->
   <div
     id="burgerMenu"
     role="button"
@@ -168,7 +179,7 @@
     </div>
   </div>
 
-  <!-- ===== Modal Rapport d’intervention ===== -->
+  <!-- ===== Modal Rapport d’intervention (UN SEUL) ===== -->
   <div id="reportModal" class="modal">
     <div class="modal-content">
       <span class="close" onclick="closeReportForm()">×</span>
@@ -202,22 +213,27 @@
           <button type="button" onclick="closeReportForm()">❌ Fermer</button>
         </div>
       </form>
+      <!-- Zone d’aperçu (utilisée par le PDF/print) -->
       <div id="reportContent" style="display:none;"></div>
     </div>
   </div>
 
-  <!-- ===== Modal Itinéraire ===== -->
+  <!-- ===== Modal Itinéraire (mise en page corrigée) ===== -->
   <div id="itineraryModal" class="modal">
     <div class="modal-content">
       <span class="close" onclick="closeItineraryModal()">×</span>
       <h2>🧭 Calcul d'itinéraire</h2>
-      <form id="itineraryForm">
-        <label>Adresse de départ :</label>
-        <input type="text" id="startAddress" required />
-        <div id="extraDestinations"></div>
-        <button type="button" onclick="addDestinationField()">➕ Ajouter une étape</button>
-        <label>Adresse de destination :</label>
-        <input type="text" id="endAddress" required />
+      <form id="itineraryForm" onsubmit="return false;">
+        <label class="full">Adresse de départ :</label>
+        <input class="full" type="text" id="startAddress" required />
+
+        <div id="extraDestinations" class="full"></div>
+
+        <button id="addStepBtn" class="full" type="button" onclick="addDestinationField()">➕ Ajouter une étape</button>
+
+        <label class="full">Adresse de destination :</label>
+        <input class="full" type="text" id="endAddress" required />
+
         <div class="form-buttons">
           <button type="button" onclick="calculateRoute()">🚗 Calculer l’itinéraire</button>
           <button id="exportPdfBtn" type="button" onclick="exportItineraryToPDF()" style="display:none;">📄 Exporter en PDF</button>
@@ -289,7 +305,7 @@
   </script>
 
   <!-- PDF & rendu de carte -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <!-- ⚠️ Garder UNIQUEMENT html2pdf.bundle (n'ajoute pas html2canvas séparé, sinon PDF blanc) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
 
