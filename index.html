@@ -1,3 +1,6 @@
+# `index.html`
+
+```html
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -14,78 +17,14 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
 
-  <!-- Styles correctifs -->
+  <!-- Styles correctifs locaux (minimes) -->
   <style>
-    /* En-tête */
-    header {
-      position: sticky; top: 0; z-index: 3000;
-      background: #004080; color: #fff;
-      padding: 20px 12px 12px;
-      display: flex; flex-direction: column; align-items: center; gap: 8px;
-      text-align: center;
-    }
+    header { position: sticky; top: 0; z-index: 3000; background: #004080; color: #fff; padding: 20px 12px 12px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
     header h1 { margin: 0; font-size: 20px; font-weight: 600; color:#fff !important; }
-
-    /* Burger TOUJOURS au-dessus */
-    #burgerMenu{
-      position: fixed !important; top:12px !important; right:12px !important;
-      user-select:none; cursor:pointer; font-size:20px;
-      background:#fff; color:#000; border:1px solid #eee; border-radius:8px;
-      padding:6px 10px; line-height:1; z-index: 2147483647 !important;
-      box-shadow:0 6px 20px rgba(0,0,0,.08);
-    }
-    #menuDropdown{
-      position: fixed !important; top:56px !important; right:12px !important;
-      display:none; z-index: 2147483646 !important;
-      background:#fff; border:1px solid #eee; border-radius:8px;
-      padding:6px 0; min-width:240px; box-shadow:0 6px 20px rgba(0,0,0,.12);
-    }
-    #menuDropdown ul{ list-style:none; margin:0; padding:0; }
-    #menuDropdown li{ padding:10px 14px; cursor:pointer; }
-    #menuDropdown li:hover{ background:#f6f6f6; }
-    #menuDropdown li.divider{ border-top:1px solid #eee; margin:6px 0 0 0; padding:0; }
-
-    /* Carte & page */
     body, html { height:100%; }
     #map { width:100%; height:80vh; }
-
-    /* Panneau Prestataires : panneau latéral fixe */
-    #providerList {
-      display:none;
-      position: fixed; top: 120px; right: 12px; z-index: 3500;
-      width: min(380px, 92vw); max-height: 60vh; overflow:auto;
-      background:#fff; border:1px solid #ddd; border-radius:10px; padding:12px;
-      box-shadow: 0 10px 24px rgba(0,0,0,.18);
-    }
-
-    /* Modals génériques */
-    .modal, .modal-overlay {
-      display:none; position:fixed; inset:0; background:rgba(0,0,0,.4);
-      align-items:center; justify-content:center; z-index:2000;
-    }
-    .modal-content{
-      background:#fff; padding:16px; border-radius:12px;
-      max-width:720px; width:min(92vw,720px); max-height:85vh; overflow:auto;
-    }
-    .form-buttons{ display:flex; gap:8px; flex-wrap:wrap; }
-
-    /* Itinéraire : boutons côte à côte */
-    #itineraryForm .controls-row {
-      display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:flex-end;
-      margin-top: 10px;
-    }
-    #itineraryForm .full { width:100%; }
-
-    /* Zone d’impression/PDF (visible hors écran) */
-    #reportPrint {
-      position: fixed; left: -9999px; top: 0;
-      width: 794px; background: #fff; color:#000; padding: 24px; /* A4 portrait ~ 210mm @96dpi ≈ 794px */
-    }
-    #reportPrint h2 { margin: 0 0 8px; }
-    #reportPrint .row { display:flex; gap:12px; }
-    #reportPrint .row > div { flex:1; }
-    #reportPrint table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-    #reportPrint table td, #reportPrint table th { border:1px solid #ddd; padding:8px; vertical-align: top; }
+    /* Panneau Prestataires : fixe */
+    #providerList { position: fixed; top: 120px; right: 12px; z-index: 3500; width: min(380px, 92vw); }
   </style>
 </head>
 
@@ -94,6 +33,7 @@
   <header>
     <img src="logikart-logo.png" alt="LOGIKART" style="height:60px;" />
     <h1>LOGIKART - Carte des Prestataires</h1>
+    <span id="syncBadge" style="font-size:12px; padding:2px 8px; border-radius:999px; background:#9e9e9e; color:#fff;">Sync: …</span>
   </header>
 
   <!-- Burger -->
@@ -146,13 +86,13 @@
   <div id="map"></div>
 
   <!-- Panneau Prestataires -->
-  <aside id="providerList"></aside>
+  <aside id="providerList" style="display:none;"></aside>
 
   <!-- ===== Modal Prestataire ===== -->
-  <div id="providerFormSection" class="modal-overlay">
+  <div id="providerFormSection" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="providerFormTitle">
     <div class="modal-content">
       <form id="providerForm">
-        <h2>Ajouter un prestataire</h2>
+        <h2 id="providerFormTitle">Ajouter un prestataire</h2>
         <input type="text" id="companyName" placeholder="RAISON SOCIALE" required />
         <input type="text" id="contactName" placeholder="NOM" required />
         <input type="text" id="firstName" placeholder="PRÉNOM" />
@@ -178,13 +118,13 @@
     </div>
   </div>
 
-  <!-- ===== Modal Rapport d’intervention (UN SEUL) ===== -->
-  <div id="reportModal" class="modal">
+  <!-- ===== Modal Rapport d’intervention ===== -->
+  <div id="reportModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
     <div class="modal-content">
       <span class="close" onclick="closeReportForm()">×</span>
       <form id="reportForm">
         <img src="logikart-logo.png" alt="LOGIKART" class="logo" style="height:60px;" />
-        <h2>Rapport d’intervention LOGIKART</h2>
+        <h2 id="reportTitle">Rapport d’intervention LOGIKART</h2>
         <label>Numéro de ticket :</label>
         <input type="text" name="ticket" required />
         <label>Date d’intervention :</label>
@@ -219,10 +159,10 @@
   <div id="reportPrint"></div>
 
   <!-- ===== Modal Itinéraire ===== -->
-  <div id="itineraryModal" class="modal">
+  <div id="itineraryModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="itineraryTitle">
     <div class="modal-content">
       <span class="close" onclick="closeItineraryModal()">×</span>
-      <h2>🧭 Calcul d'itinéraire</h2>
+      <h2 id="itineraryTitle">🧭 Calcul d'itinéraire</h2>
       <form id="itineraryForm" onsubmit="return false;">
         <label class="full">Adresse de départ :</label>
         <input class="full" type="text" id="startAddress" required />
@@ -243,10 +183,10 @@
   </div>
 
   <!-- ===== Modal Import ===== -->
-  <div id="importModal" class="modal">
+  <div id="importModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="importTitle">
     <div class="modal-content">
       <span class="close" onclick="closeImportModal()">×</span>
-      <h2>↕️ Importer des prestataires</h2>
+      <h2 id="importTitle">↕️ Importer des prestataires</h2>
       <p>Fichiers acceptés : <strong>JSON</strong> ou <strong>CSV</strong> (entêtes FR/EN reconnus).</p>
       <input type="file" id="importFile" accept=".json,.csv" />
       <label style="display:block; margin-top:8px;">
@@ -310,7 +250,7 @@
   <!-- Script principal -->
   <script src="script.js"></script>
 
-  <!-- Correctifs : techniciens + impression/PDF robustes -->
+  <!-- Correctifs : techniciens + impression/PDF robustes (SOURCE DE VÉRITÉ) -->
   <script>
     /* ========= 1) Auto-remplir la datalist des techniciens ========= */
     (function setupTechnicianDatalist(){
@@ -334,15 +274,13 @@
       async function fetchFromFirestore(){
         if (!window.db) return;
         try {
-          // 1) Collection "technicians" (si tu en as une)
           var snapTech = await db.collection('technicians').limit(200).get();
           if (!snapTech.empty) {
             var arr = [];
             snapTech.forEach(function(d){ var v=d.data(); if (v && v.name) arr.push(String(v.name)); });
             if (arr.length) { setOptions(arr); return; }
           }
-          // 2) Sinon, déduire depuis "providers"
-          var snapProv = await db.collection('providers').limit(500).get();
+          var snapProv = await db.collection('prestataires').limit(500).get();
           if (!snapProv.empty) {
             var arr2 = [];
             snapProv.forEach(function(d){
@@ -356,30 +294,35 @@
           }
         } catch(e){ console.warn('[Technicians] Firestore:', e); }
       }
-      function fetchFromCache(){
+      function cacheSnapshot(){
         var arr=[];
-        if (Array.isArray(window.__providersCache)) {
-          window.__providersCache.forEach(function(p){
+        try {
+          var local = JSON.parse(localStorage.getItem('providers')) || [];
+          local.forEach(function(p){
             var first=(p.firstName||'').trim(), last=(p.contactName||'').trim();
             var full = (first && last) ? (first+' '+last) : (first || last || (p.companyName||'').trim());
             if (full) arr.push(full);
           });
-        }
-        if (arr.length) setOptions(arr);
+        } catch(e){}
+        return arr;
       }
-      // Ouverture du modal → on tente Firestore puis fallback cache/local
+      // Ouverture du modal → fallback cache immédiat puis Firestore
       window.openReportForm = (function(orig){
         return function(){
           var modal = document.getElementById('reportModal');
           if (modal) { modal.style.display='flex'; }
+          // instantané cache
+          var arr = cacheSnapshot();
+          if (arr.length) setOptions(arr);
+          // puis Firestore
           if (!filled) {
-            fetchFromFirestore().then(function(){ if (!filled) fetchFromCache(); });
+            fetchFromFirestore().then(function(){ if (!filled) { var arr2 = cacheSnapshot(); if (arr2.length) setOptions(arr2); } });
           }
         };
       })(window.openReportForm);
     })();
 
-    /* ========= 2) Rapport : construire DOM + attendre images ========= */
+    /* ========= 2) Rapport : DOM + attente images ========= */
     function buildReportNode(values) {
       function el(tag, attrs, text) {
         var n = document.createElement(tag);
@@ -409,10 +352,11 @@
       var root = el('div', null, null);
       root.style.fontFamily = 'Arial, sans-serif';
       root.style.color = '#000';
+      root.style.background = '#fff';
 
       var header = el('div', null, null);
       header.style.display='flex'; header.style.alignItems='center'; header.style.gap='12px'; header.style.marginBottom='12px';
-      var logo = el('img', { src: 'logikart-logo.png', alt: 'LOGIKART' }, null); logo.style.height='54px';
+      var logo = el('img', { src: 'logikart-logo.png', alt: 'LOGIKART', crossorigin: 'anonymous' }, null); logo.style.height='54px';
       var h2 = el('h2', null, 'Rapport d’intervention LOGIKART'); h2.style.margin='0';
       header.appendChild(logo); header.appendChild(h2);
       root.appendChild(header);
@@ -466,13 +410,13 @@
 
       win.document.open();
       win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Rapport d’intervention</title>');
-      win.document.write('<style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif}img{max-width:100%;height:auto}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px}</style>');
+      win.document.write('<style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif;background:#fff}img{max-width:100%;height:auto}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px}</style>');
       win.document.write('</head><body></body></html>');
       win.document.close();
 
       win.document.body.appendChild(node);
 
-      var doPrint = function(){ setTimeout(function(){ win.focus(); win.print(); win.close(); }, 50); };
+      var doPrint = function(){ setTimeout(function(){ win.focus(); win.print(); /*win.close();*/ }, 50); };
       waitImages(win.document, doPrint);
     };
 
@@ -510,3 +454,52 @@
   </script>
 </body>
 </html>
+```
+
+---
+
+# `script.js`
+
+```js
+// ======================= LOGIKART / script.js =======================
+// Carte Leaflet — vue Europe par défaut
+const map = L.map('map').setView([54, 15], 4);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap contributors'
+}).addTo(map);
+
+// --- utilitaire debounce (retarde l'appel tant que ça "bouge") ---
+function debounce(fn, delay = 120) {
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), delay);
+  };
+}
+
+// ---------- Marqueurs performants (index + layer + cluster optionnel) ----------
+let markerIndex = new Map(); // key -> { marker, data }
+let markerLayer;
+if (L.markerClusterGroup) {
+  markerLayer = L.markerClusterGroup({ chunkedLoading: true });
+} else {
+  markerLayer = L.layerGroup();
+}
+map.addLayer(markerLayer);
+
+function markerKey(p) {
+  return p.id || (String(p.email || '').toLowerCase() + '|' + String(p.phone || ''));
+}
+
+function createMarker(p) {
+  const m = L.marker([p.lat, p.lon]).bindPopup(
+    `<strong>${p.companyName || ""}</strong><br>${p.contactName || ""}<br>${p.email || ""}<br>${p.phone || ""}<br><em>${p.address || ""}</em>`
+  );
+  markerLayer.addLayer(m);
+  markerIndex.set(markerKey(p), { marker: m, data: p });
+  return m;
+}
+function upsertMarker(p) {
+  const key = markerKey(p);
+  const existing = markerIndex.get
+```
