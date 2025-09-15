@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Carte des Prestataires</title>
+  <title>LOGIKART - Carte des Prestataires</title>
 
   <link rel="stylesheet" href="style.css" />
   <link rel="icon" href="logikart-logo.png" />
@@ -14,9 +14,8 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
 
-  <!-- Patchs pour un burger toujours cliquable -->
+  <!-- Patchs burger : toujours cliquable, au-dessus de tout -->
   <style>
-    /* Header visuel (logo + titre) */
     header {
       position: sticky; top: 0; z-index: 3000;
       background: #004080; color: #fff;
@@ -24,20 +23,21 @@
       display: flex; flex-direction: column; align-items: center; gap: 10px;
       text-align: center;
     }
-
-    /* Burger fixé au-dessus de tout (même la carte) */
+    /* Burger fixé en haut-droite, pointer-events activés */
     #burgerMenu{
       position: fixed !important; top:12px !important; right:12px !important;
       user-select:none; cursor:pointer; font-size:20px;
       background:#fff; color:#000; border:1px solid #eee; border-radius:8px;
-      padding:6px 10px; line-height:1; z-index: 99999 !important;
+      padding:6px 10px; line-height:1; z-index: 2147483647 !important; /* max */
       box-shadow:0 6px 20px rgba(0,0,0,.08);
+      pointer-events: auto !important;
     }
     #menuDropdown{
       position: fixed !important; top:56px !important; right:12px !important;
-      display:none; z-index: 99998 !important;
+      display:none; z-index: 2147483646 !important;
       background:#fff; border:1px solid #eee; border-radius:8px;
       padding:6px 0; min-width:240px; box-shadow:0 6px 20px rgba(0,0,0,.12);
+      pointer-events: auto !important;
     }
     #menuDropdown ul{ list-style:none; margin:0; padding:0; }
     #menuDropdown li{ padding:10px 14px; cursor:pointer; }
@@ -68,9 +68,18 @@
     <h1 style="margin:0;">LOGIKART - Réseau de prestataires informatiques</h1>
   </header>
 
-  <!-- Burger (en dehors du header pour éviter les stacking contexts) -->
-  <div id="burgerMenu" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false" aria-controls="menuDropdown">☰</div>
-  <div id="menuDropdown">
+  <!-- Burger AUTONOME (script juste après) -->
+  <div
+    id="burgerMenu"
+    role="button"
+    tabindex="0"
+    aria-haspopup="true"
+    aria-expanded="false"
+    aria-controls="menuDropdown"
+    onclick="window.__toggleMenu && window.__toggleMenu(event)"
+  >☰</div>
+
+  <div id="menuDropdown" aria-label="Menu">
     <ul>
       <li onclick="toggleProviderList()">📋 Prestataires</li>
       <li onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
@@ -81,6 +90,39 @@
       <li onclick="openImportModal()">⬆️ Importer</li>
     </ul>
   </div>
+
+  <!-- Script DU BURGER (autonome, placé ici pour fonctionner même si d'autres scripts plantent) -->
+  <script>
+    (function () {
+      const burger = document.getElementById('burgerMenu');
+      const dropdown = document.getElementById('menuDropdown');
+
+      function closeMenu() {
+        dropdown.style.display = 'none';
+        burger.setAttribute('aria-expanded', 'false');
+      }
+      function toggleMenu(e) {
+        if (e) e.stopPropagation(); // évite la fermeture immédiate
+        const open = dropdown.style.display === 'block';
+        dropdown.style.display = open ? 'none' : 'block';
+        burger.setAttribute('aria-expanded', String(!open));
+      }
+
+      // Expose une fonction globale pour l'attribut onclick inline (fallback)
+      window.__toggleMenu = toggleMenu;
+
+      // Écouteurs standards
+      burger.addEventListener('click', toggleMenu);
+      burger.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleMenu(e); }
+      });
+      dropdown.addEventListener('click', (e) => e.stopPropagation());
+      document.addEventListener('click', (e) => {
+        if (!dropdown.contains(e.target) && e.target !== burger) closeMenu();
+      });
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+    })();
+  </script>
 
   <!-- Barre d’action -->
   <section style="padding:10px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
@@ -226,7 +268,6 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
     const auth = firebase.auth();
-    // Exposé pour script.js
     window.db = db;
 
     // Promise d’auth anonyme utilisée par script.js
@@ -247,45 +288,12 @@
     })();
   </script>
 
-  <!-- PDF & rendu de carte (pour itinéraire PDF) -->
+  <!-- PDF & rendu de carte -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
 
   <!-- Script principal -->
   <script src="script.js"></script>
-
-  <!-- Gestion du burger (clic + clavier + fermeture extérieure) -->
-  <script>
-    (function () {
-      const burger = document.getElementById('burgerMenu');
-      const dropdown = document.getElementById('menuDropdown');
-
-      function closeMenu() {
-        dropdown.style.display = 'none';
-        burger.setAttribute('aria-expanded', 'false');
-      }
-      function toggleMenu(e) {
-        if (e) e.stopPropagation(); // évite la fermeture immédiate
-        const open = dropdown.style.display === 'block';
-        dropdown.style.display = open ? 'none' : 'block';
-        burger.setAttribute('aria-expanded', String(!open));
-      }
-
-      // Nettoie d'éventuels anciens listeners
-      burger.replaceWith(burger.cloneNode(true));
-      const newBurger = document.getElementById('burgerMenu');
-
-      newBurger.addEventListener('click', toggleMenu);
-      newBurger.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleMenu(e); }
-      });
-      dropdown.addEventListener('click', (e) => e.stopPropagation());
-      document.addEventListener('click', (e) => {
-        if (!dropdown.contains(e.target) && e.target !== newBurger) closeMenu();
-      });
-      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
-    })();
-  </script>
 </body>
 </html>
