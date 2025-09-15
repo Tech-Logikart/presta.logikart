@@ -314,9 +314,9 @@
   <!-- Script principal -->
   <script src="script.js"></script>
 
-  <!-- Correctifs rapport : dédoublonnage + PDF non vierge -->
+  <!-- Correctifs rapport : dédoublonnage + impression/PDF robustes -->
   <script>
-    // 1) Si un vieux doublon du modal rapport existe dans la page, on le supprime
+    // 1) Dédoublonnage au chargement (sécurité)
     document.addEventListener('DOMContentLoaded', () => {
       const modals = document.querySelectorAll('#reportModal');
       if (modals.length > 1) {
@@ -324,7 +324,7 @@
       }
     });
 
-    // 2) Fonctions robustes pour ouvrir/fermer le modal
+    // 2) Ouvrir/fermer le modal rapport
     window.openReportForm = function () {
       const modal = document.getElementById('reportModal');
       if (modal) { modal.style.display = 'flex'; }
@@ -334,42 +334,42 @@
       if (modal) { modal.style.display = 'none'; }
     };
 
-    // 3) Gabarit d’impression & PDF (rendu visible hors écran pour éviter le PDF blanc)
+    // 3) Construction du HTML d’impression à partir du formulaire
     function buildReportHTML(values) {
       return `
-        <div>
+        <div style="font-family: Arial, sans-serif; color:#000;">
           <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
             <img src="logikart-logo.png" alt="LOGIKART" style="height:54px;" />
             <h2 style="margin:0;">Rapport d’intervention LOGIKART</h2>
           </div>
 
-          <div class="row">
-            <div><strong>N° Ticket :</strong> ${values.ticket}</div>
-            <div><strong>Date :</strong> ${values.interventionDate}</div>
+          <div style="display:flex; gap:12px; margin:6px 0;">
+            <div style="flex:1;"><strong>N° Ticket :</strong> ${values.ticket}</div>
+            <div style="flex:1;"><strong>Date :</strong> ${values.interventionDate}</div>
           </div>
-          <div class="row" style="margin-top:6px;">
-            <div><strong>Technicien :</strong> ${values.technician}</div>
-            <div><strong>Site :</strong> ${values.siteAddress}</div>
+          <div style="display:flex; gap:12px; margin:6px 0;">
+            <div style="flex:1;"><strong>Technicien :</strong> ${values.technician}</div>
+            <div style="flex:1;"><strong>Site :</strong> ${values.siteAddress}</div>
           </div>
 
-          <table>
-            <tr><th>Travail à faire</th></tr>
-            <tr><td>${values.todo.replace(/\n/g,'<br>')}</td></tr>
+          <table style="width:100%; border-collapse:collapse; margin-top:12px;">
+            <tr><th style="text-align:left; border:1px solid #ddd; padding:8px;">Travail à faire</th></tr>
+            <tr><td style="border:1px solid #ddd; padding:8px;">${values.todo.replace(/\n/g,'<br>')}</td></tr>
           </table>
 
-          <table>
-            <tr><th>Travail effectué</th></tr>
-            <tr><td>${values.done.replace(/\n/g,'<br>')}</td></tr>
+          <table style="width:100%; border-collapse:collapse; margin-top:12px;">
+            <tr><th style="text-align:left; border:1px solid #ddd; padding:8px;">Travail effectué</th></tr>
+            <tr><td style="border:1px solid #ddd; padding:8px;">${values.done.replace(/\n/g,'<br>')}</td></tr>
           </table>
 
-          <div class="row" style="margin-top:12px;">
-            <div><strong>Arrivée :</strong> ${values.start}</div>
-            <div><strong>Départ :</strong> ${values.end}</div>
+          <div style="display:flex; gap:12px; margin-top:12px;">
+            <div style="flex:1;"><strong>Arrivée :</strong> ${values.start}</div>
+            <div style="flex:1;"><strong>Départ :</strong> ${values.end}</div>
           </div>
 
-          <div class="row" style="margin-top:16px;">
-            <div><strong>Signature technicien :</strong> ${values.signTech || ''}</div>
-            <div><strong>Signature client :</strong> ${values.signClient || ''}</div>
+          <div style="display:flex; gap:12px; margin-top:16px;">
+            <div style="flex:1;"><strong>Signature technicien :</strong> ${values.signTech || ''}</div>
+            <div style="flex:1;"><strong>Signature client :</strong> ${values.signClient || ''}</div>
           </div>
         </div>
       `;
@@ -392,30 +392,72 @@
       };
     }
 
+    // 4) Impression robuste : nouvelle fenêtre, injecte HTML + styles, attend images, puis imprime
     window.printReport = function () {
-      const container = document.getElementById('reportPrint');
-      container.innerHTML = buildReportHTML(getReportValues());
-      const prev = document.body.innerHTML;
-      const prevScroll = { x: window.scrollX, y: window.scrollY };
-      document.body.innerHTML = container.outerHTML;
-      window.print();
-      document.body.innerHTML = prev;
-      window.scrollTo(prevScroll.x, prevScroll.y);
+      const html = buildReportHTML(getReportValues());
+      const win = window.open('', '_blank');
+      if (!win) { alert("Le navigateur a bloqué la fenêtre d'impression."); return; }
+
+      const styles = `
+        <style>
+          @page { size: A4; margin: 12mm; }
+          body { font-family: Arial, sans-serif; }
+          img { max-width: 100%; height: auto; }
+          table { width:100%; border-collapse:collapse; }
+          th, td { border:1px solid #ddd; padding:8px; }
+        </style>
+      `;
+
+      win.document.open();
+      win.document.write(\`<!doctype html><html><head><meta charset="utf-8"><title>Rapport d’intervention</title>\${styles}</head><body>\${html}</body></html>\`);
+      win.document.close();
+
+      const afterLoad = () => {
+        const images = win.document.images;
+        if (!images || images.length === 0) {
+          setTimeout(() => { win.focus(); win.print(); win.close(); }, 50);
+          return;
+        }
+        let loaded = 0;
+        const done = () => setTimeout(() => { win.focus(); win.print(); win.close(); }, 50);
+        Array.from(images).forEach(img => {
+          if (img.complete) {
+            if (++loaded === images.length) done();
+          } else {
+            img.onload = img.onerror = () => { if (++loaded === images.length) done(); };
+          }
+        });
+      };
+
+      if (win.document.readyState === 'complete') afterLoad();
+      else win.onload = afterLoad;
     };
 
+    // 5) Génération PDF robuste : clone visible hors écran → html2pdf → suppression
     window.generatePDF = async function () {
-      const container = document.getElementById('reportPrint');
-      container.innerHTML = buildReportHTML(getReportValues());
+      const values = getReportValues();
+      const tmp = document.createElement('div');
+      tmp.id = 'reportToPdf';
+      tmp.style.position = 'fixed';
+      tmp.style.left = '-9999px';
+      tmp.style.top = '0';
+      tmp.style.width = '794px'; /* A4 portrait ~ 210mm @96dpi ≈ 794px */
+      tmp.style.background = '#fff';
+      tmp.innerHTML = buildReportHTML(values);
+      document.body.appendChild(tmp);
 
-      // html2pdf fonctionne sur un élément VISIBLE (ici: hors écran mais rendu)
       const opt = {
-        margin:       10,               // mm
+        margin:       10,
         filename:     'rapport_intervention.pdf',
         image:        { type: 'jpeg', quality: 0.95 },
         html2canvas:  { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
         jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
       };
-      await html2pdf().set(opt).from(container).save();
+      try {
+        await html2pdf().set(opt).from(tmp).save();
+      } finally {
+        document.body.removeChild(tmp);
+      }
     };
   </script>
 </body>
