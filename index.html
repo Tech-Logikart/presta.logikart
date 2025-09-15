@@ -24,7 +24,7 @@
       display: flex; flex-direction: column; align-items: center; gap: 8px;
       text-align: center;
     }
-    header h1 { margin: 0; font-size: 20px; font-weight: 600; }
+    header h1 { margin: 0; font-size: 20px; font-weight: 600; color:#fff !important; }
 
     /* Burger TOUJOURS au-dessus */
     #burgerMenu{
@@ -49,7 +49,7 @@
     body, html { height:100%; }
     #map { width:100%; height:80vh; }
 
-    /* Panneau Prestataires : panneau latéral fixe (au lieu du bas de page) */
+    /* Panneau Prestataires : panneau latéral fixe */
     #providerList {
       display:none;
       position: fixed; top: 120px; right: 12px; z-index: 3500;
@@ -69,13 +69,25 @@
     }
     .form-buttons{ display:flex; gap:8px; flex-wrap:wrap; }
 
-    /* Mise en page Itinéraire : boutons sur la même ligne */
+    /* Itinéraire : boutons côte à côte */
     #itineraryForm .controls-row {
       display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:flex-end;
       margin-top: 10px;
     }
-    #itineraryForm .controls-row > button { flex: 0 0 auto; }
     #itineraryForm .full { width:100%; }
+
+    /* Zone d’impression/PDF (DOIT être visible pour html2pdf) */
+    #reportPrint {
+      position: fixed; left: -9999px; top: 0;   /* hors écran mais rendu */
+      width: 794px; /* A4 portrait ~ 210mm @96dpi ≈ 794px */
+      background: #fff; color:#000; padding: 24px;
+      z-index: -1;
+    }
+    #reportPrint h2 { margin: 0 0 8px; }
+    #reportPrint .row { display:flex; gap:12px; }
+    #reportPrint .row > div { flex:1; }
+    #reportPrint table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    #reportPrint table td, #reportPrint table th { border:1px solid #ddd; padding:8px; vertical-align: top; }
   </style>
 </head>
 
@@ -203,12 +215,13 @@
           <button type="button" onclick="closeReportForm()">❌ Fermer</button>
         </div>
       </form>
-      <!-- Zone d’aperçu (utilisée par le PDF/print) -->
-      <div id="reportContent" style="display:none;"></div>
     </div>
   </div>
 
-  <!-- ===== Modal Itinéraire (boutons côte à côte) ===== -->
+  <!-- ===== Zone d’impression/PDF (visible hors écran) ===== -->
+  <div id="reportPrint"></div>
+
+  <!-- ===== Modal Itinéraire ===== -->
   <div id="itineraryModal" class="modal">
     <div class="modal-content">
       <span class="close" onclick="closeItineraryModal()">×</span>
@@ -294,11 +307,116 @@
   </script>
 
   <!-- PDF & rendu de carte -->
-  <!-- ⚠️ Garder UNIQUEMENT html2pdf.bundle (n’ajoute pas html2canvas séparé, sinon PDF blanc) -->
+  <!-- ⚠️ Garder UNIQUEMENT html2pdf.bundle (n’ajoute PAS html2canvas séparé, sinon PDF blanc) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
 
   <!-- Script principal -->
   <script src="script.js"></script>
+
+  <!-- Correctifs rapport : dédoublonnage + PDF non vierge -->
+  <script>
+    // 1) Si un vieux doublon du modal rapport existe dans la page, on le supprime
+    document.addEventListener('DOMContentLoaded', () => {
+      const modals = document.querySelectorAll('#reportModal');
+      if (modals.length > 1) {
+        for (let i = 1; i < modals.length; i++) modals[i].remove();
+      }
+    });
+
+    // 2) Fonctions robustes pour ouvrir/fermer le modal
+    window.openReportForm = function () {
+      const modal = document.getElementById('reportModal');
+      if (modal) { modal.style.display = 'flex'; }
+    };
+    window.closeReportForm = function () {
+      const modal = document.getElementById('reportModal');
+      if (modal) { modal.style.display = 'none'; }
+    };
+
+    // 3) Gabarit d’impression & PDF (rendu visible hors écran pour éviter le PDF blanc)
+    function buildReportHTML(values) {
+      return `
+        <div>
+          <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+            <img src="logikart-logo.png" alt="LOGIKART" style="height:54px;" />
+            <h2 style="margin:0;">Rapport d’intervention LOGIKART</h2>
+          </div>
+
+          <div class="row">
+            <div><strong>N° Ticket :</strong> ${values.ticket}</div>
+            <div><strong>Date :</strong> ${values.interventionDate}</div>
+          </div>
+          <div class="row" style="margin-top:6px;">
+            <div><strong>Technicien :</strong> ${values.technician}</div>
+            <div><strong>Site :</strong> ${values.siteAddress}</div>
+          </div>
+
+          <table>
+            <tr><th>Travail à faire</th></tr>
+            <tr><td>${values.todo.replace(/\n/g,'<br>')}</td></tr>
+          </table>
+
+          <table>
+            <tr><th>Travail effectué</th></tr>
+            <tr><td>${values.done.replace(/\n/g,'<br>')}</td></tr>
+          </table>
+
+          <div class="row" style="margin-top:12px;">
+            <div><strong>Arrivée :</strong> ${values.start}</div>
+            <div><strong>Départ :</strong> ${values.end}</div>
+          </div>
+
+          <div class="row" style="margin-top:16px;">
+            <div><strong>Signature technicien :</strong> ${values.signTech || ''}</div>
+            <div><strong>Signature client :</strong> ${values.signClient || ''}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function getReportValues() {
+      const f = document.getElementById('reportForm');
+      const get = (name) => (f.querySelector(\`[name="\${name}"]\`)?.value || '').trim();
+      return {
+        ticket: get('ticket'),
+        interventionDate: get('interventionDate'),
+        siteAddress: get('siteAddress'),
+        technician: get('technician'),
+        todo: get('todo'),
+        done: get('done'),
+        start: get('start'),
+        end: get('end'),
+        signTech: get('signTech'),
+        signClient: get('signClient'),
+      };
+    }
+
+    window.printReport = function () {
+      const container = document.getElementById('reportPrint');
+      container.innerHTML = buildReportHTML(getReportValues());
+      const prev = document.body.innerHTML;
+      const prevScroll = { x: window.scrollX, y: window.scrollY };
+      document.body.innerHTML = container.outerHTML;
+      window.print();
+      document.body.innerHTML = prev;
+      window.scrollTo(prevScroll.x, prevScroll.y);
+    };
+
+    window.generatePDF = async function () {
+      const container = document.getElementById('reportPrint');
+      container.innerHTML = buildReportHTML(getReportValues());
+
+      // html2pdf fonctionne sur un élément VISIBLE (ici: hors écran mais rendu)
+      const opt = {
+        margin:       10,               // mm
+        filename:     'rapport_intervention.pdf',
+        image:        { type: 'jpeg', quality: 0.95 },
+        html2canvas:  { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+      await html2pdf().set(opt).from(container).save();
+    };
+  </script>
 </body>
 </html>
