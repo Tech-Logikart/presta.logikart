@@ -76,10 +76,10 @@
     }
     #itineraryForm .full { width:100%; }
 
-    /* Zone d’impression/PDF (visible hors écran pour html2pdf) */
+    /* Zone d’impression/PDF (visible hors écran) */
     #reportPrint {
       position: fixed; left: -9999px; top: 0;
-      width: 794px; background: #fff; color:#000; padding: 24px; z-index: -1;
+      width: 794px; background: #fff; color:#000; padding: 24px; /* A4 portrait ~ 210mm @96dpi ≈ 794px */
     }
     #reportPrint h2 { margin: 0 0 8px; }
     #reportPrint .row { display:flex; gap:12px; }
@@ -310,27 +310,76 @@
   <!-- Script principal -->
   <script src="script.js"></script>
 
-  <!-- Correctifs rapport : dédoublonnage + impression/PDF robustes (SANS template strings) -->
+  <!-- Correctifs : techniciens + impression/PDF robustes -->
   <script>
-    // Dédoublonnage au chargement (sécurité)
-    document.addEventListener('DOMContentLoaded', function () {
-      var modals = document.querySelectorAll('#reportModal');
-      if (modals.length > 1) {
-        for (var i = 1; i < modals.length; i++) modals[i].remove();
+    /* ========= 1) Auto-remplir la datalist des techniciens ========= */
+    (function setupTechnicianDatalist(){
+      var filled = false;
+      function setOptions(list) {
+        var dl = document.getElementById('technicianList');
+        if (!dl) return;
+        dl.innerHTML = '';
+        var uniq = Object.create(null);
+        list.forEach(function(name){
+          var n = (name || '').trim();
+          if (!n) return;
+          if (uniq[n]) return;
+          uniq[n] = true;
+          var opt = document.createElement('option');
+          opt.value = n;
+          dl.appendChild(opt);
+        });
+        filled = true;
       }
-    });
+      async function fetchFromFirestore(){
+        if (!window.db) return;
+        try {
+          // 1) Collection "technicians" (si tu en as une)
+          var snapTech = await db.collection('technicians').limit(200).get();
+          if (!snapTech.empty) {
+            var arr = [];
+            snapTech.forEach(function(d){ var v=d.data(); if (v && v.name) arr.push(String(v.name)); });
+            if (arr.length) { setOptions(arr); return; }
+          }
+          // 2) Sinon, déduire depuis "providers"
+          var snapProv = await db.collection('providers').limit(500).get();
+          if (!snapProv.empty) {
+            var arr2 = [];
+            snapProv.forEach(function(d){
+              var v=d.data()||{};
+              var first = (v.firstName||'').trim();
+              var last = (v.contactName||'').trim();
+              var full = (first && last) ? (first+' '+last) : (first || last || (v.companyName||'').trim());
+              if (full) arr2.push(full);
+            });
+            if (arr2.length) { setOptions(arr2); return; }
+          }
+        } catch(e){ console.warn('[Technicians] Firestore:', e); }
+      }
+      function fetchFromCache(){
+        var arr=[];
+        if (Array.isArray(window.__providersCache)) {
+          window.__providersCache.forEach(function(p){
+            var first=(p.firstName||'').trim(), last=(p.contactName||'').trim();
+            var full = (first && last) ? (first+' '+last) : (first || last || (p.companyName||'').trim());
+            if (full) arr.push(full);
+          });
+        }
+        if (arr.length) setOptions(arr);
+      }
+      // Ouverture du modal → on tente Firestore puis fallback cache/local
+      window.openReportForm = (function(orig){
+        return function(){
+          var modal = document.getElementById('reportModal');
+          if (modal) { modal.style.display='flex'; }
+          if (!filled) {
+            fetchFromFirestore().then(function(){ if (!filled) fetchFromCache(); });
+          }
+        };
+      })(window.openReportForm);
+    })();
 
-    // Ouvrir/fermer le modal rapport
-    window.openReportForm = function () {
-      var modal = document.getElementById('reportModal');
-      if (modal) { modal.style.display = 'flex'; }
-    };
-    window.closeReportForm = function () {
-      var modal = document.getElementById('reportModal');
-      if (modal) { modal.style.display = 'none'; }
-    };
-
-    // Construit un DOM (pas une string) pour éviter toute erreur de syntaxe
+    /* ========= 2) Rapport : construire DOM + attendre images ========= */
     function buildReportNode(values) {
       function el(tag, attrs, text) {
         var n = document.createElement(tag);
@@ -398,10 +447,20 @@
       };
     }
 
-    // Impression robuste : nouvelle fenêtre, injecte DOM + styles, attend images, puis imprime
+    function waitImages(container, cb) {
+      var images = container.querySelectorAll('img');
+      if (!images || images.length === 0) { cb(); return; }
+      var done = 0, total = images.length;
+      function check(){ done++; if (done >= total) cb(); }
+      Array.prototype.forEach.call(images, function(img){
+        if (img.complete) check();
+        else { img.onload = img.onerror = check; }
+      });
+    }
+
+    // Impression robuste
     window.printReport = function () {
       var node = buildReportNode(getReportValues());
-
       var win = window.open('', '_blank');
       if (!win) { alert("Le navigateur a bloqué la fenêtre d'impression."); return; }
 
@@ -413,29 +472,13 @@
 
       win.document.body.appendChild(node);
 
-      var afterLoad = function () {
-        var images = win.document.images;
-        if (!images || images.length === 0) {
-          setTimeout(function(){ win.focus(); win.print(); win.close(); }, 50);
-          return;
-        }
-        var loaded = 0;
-        var done = function(){ setTimeout(function(){ win.focus(); win.print(); win.close(); }, 50); };
-        Array.prototype.forEach.call(images, function(img){
-          if (img.complete) {
-            loaded++; if (loaded === images.length) done();
-          } else {
-            img.onload = img.onerror = function(){ loaded++; if (loaded === images.length) done(); };
-          }
-        });
-      };
-
-      if (win.document.readyState === 'complete') afterLoad();
-      else win.onload = afterLoad;
+      var doPrint = function(){ setTimeout(function(){ win.focus(); win.print(); win.close(); }, 50); };
+      waitImages(win.document, doPrint);
     };
 
-    // Génération PDF robuste : clone visible hors écran → html2pdf → suppression
+    // PDF robuste (attend images avant html2pdf)
     window.generatePDF = function () {
+      if (typeof html2pdf === 'undefined') { alert('Librairie PDF introuvable'); return; }
       var values = getReportValues();
       var tmp = document.createElement('div');
       tmp.id = 'reportToPdf';
@@ -448,17 +491,20 @@
       tmp.appendChild(node);
       document.body.appendChild(tmp);
 
-      var opt = {
-        margin:       10,
-        filename:     'rapport_intervention.pdf',
-        image:        { type: 'jpeg', quality: 0.95 },
-        html2canvas:  { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
-        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-      };
-      html2pdf().set(opt).from(tmp).save().then(function(){
-        document.body.removeChild(tmp);
-      }).catch(function(){
-        document.body.removeChild(tmp);
+      waitImages(tmp, function(){
+        var opt = {
+          margin:       10,
+          filename:     'rapport_intervention.pdf',
+          image:        { type: 'jpeg', quality: 0.95 },
+          html2canvas:  { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
+          jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+        html2pdf().set(opt).from(tmp).save().then(function(){
+          document.body.removeChild(tmp);
+        }).catch(function(err){
+          console.error('PDF error:', err);
+          document.body.removeChild(tmp);
+        });
       });
     };
   </script>
