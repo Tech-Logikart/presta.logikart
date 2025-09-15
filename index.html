@@ -76,12 +76,10 @@
     }
     #itineraryForm .full { width:100%; }
 
-    /* Zone d’impression/PDF (DOIT être visible pour html2pdf) */
+    /* Zone d’impression/PDF (visible hors écran pour html2pdf) */
     #reportPrint {
-      position: fixed; left: -9999px; top: 0;   /* hors écran mais rendu */
-      width: 794px; /* A4 portrait ~ 210mm @96dpi ≈ 794px */
-      background: #fff; color:#000; padding: 24px;
-      z-index: -1;
+      position: fixed; left: -9999px; top: 0;
+      width: 794px; background: #fff; color:#000; padding: 24px; z-index: -1;
     }
     #reportPrint h2 { margin: 0 0 8px; }
     #reportPrint .row { display:flex; gap:12px; }
@@ -124,16 +122,16 @@
   <!-- Script DU BURGER (autonome) -->
   <script>
     (function () {
-      const burger = document.getElementById('burgerMenu');
-      const dropdown = document.getElementById('menuDropdown');
+      var burger = document.getElementById('burgerMenu');
+      var dropdown = document.getElementById('menuDropdown');
       function closeMenu(){ dropdown.style.display='none'; burger.setAttribute('aria-expanded','false'); }
-      function toggleMenu(e){ if(e) e.stopPropagation(); const open=dropdown.style.display==='block'; dropdown.style.display=open?'none':'block'; burger.setAttribute('aria-expanded', String(!open)); }
+      function toggleMenu(e){ if(e) e.stopPropagation(); var open=dropdown.style.display==='block'; dropdown.style.display=open?'none':'block'; burger.setAttribute('aria-expanded', String(!open)); }
       window.__toggleMenu = toggleMenu;
       burger.addEventListener('click', toggleMenu);
-      burger.addEventListener('keydown', (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggleMenu(e);} });
-      dropdown.addEventListener('click', (e)=> e.stopPropagation());
-      document.addEventListener('click', (e)=>{ if(!dropdown.contains(e.target) && e.target!==burger) closeMenu(); });
-      document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeMenu(); });
+      burger.addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggleMenu(e);} });
+      dropdown.addEventListener('click', function(e){ e.stopPropagation(); });
+      document.addEventListener('click', function(e){ if(!dropdown.contains(e.target) && e.target!==burger) closeMenu(); });
+      document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeMenu(); });
     })();
   </script>
 
@@ -170,11 +168,10 @@
         </div>
       </form>
       <script>
-        // Calcul auto du total HT
-        const rateInput = document.getElementById("rate");
-        const travelInput = document.getElementById("travelFees");
-        const totalInput = document.getElementById("totalCost");
-        function updateTotal(){ const r=parseFloat(rateInput.value)||0, t=parseFloat(travelInput.value)||0; totalInput.value=(r+t).toFixed(2)+' €'; }
+        var rateInput = document.getElementById("rate");
+        var travelInput = document.getElementById("travelFees");
+        var totalInput = document.getElementById("totalCost");
+        function updateTotal(){ var r=parseFloat(rateInput.value)||0, t=parseFloat(travelInput.value)||0; totalInput.value=(r+t).toFixed(2)+' €'; }
         rateInput.addEventListener("input", updateTotal);
         travelInput.addEventListener("input", updateTotal);
       </script>
@@ -275,7 +272,7 @@
 
   <!-- Initialisation Firebase + Auth anonyme -->
   <script>
-    const firebaseConfig = {
+    var firebaseConfig = {
       apiKey: "AIzaSyA59iB-7skqRFngoF24VkAHZMBSIonh7Ho",
       authDomain: "lgk-presta.firebaseapp.com",
       projectId: "lgk-presta",
@@ -284,18 +281,17 @@
       appId: "1:386610630784:web:015bb6c04156918d369665"
     };
     firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
-    const auth = firebase.auth();
+    var db = firebase.firestore();
+    var auth = firebase.auth();
     window.db = db;
 
-    // Promise d’auth anonyme utilisée par script.js
-    window.authReady = (async () => {
+    window.authReady = (async function () {
       try {
         if (auth.setPersistence) {
           await auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
         }
       } catch (e) {
-        console.warn("[Auth] setPersistence:", e?.message || e);
+        console.warn("[Auth] setPersistence:", (e && e.message) || e);
       }
       try {
         await auth.signInAnonymously();
@@ -314,70 +310,80 @@
   <!-- Script principal -->
   <script src="script.js"></script>
 
-  <!-- Correctifs rapport : dédoublonnage + impression/PDF robustes -->
+  <!-- Correctifs rapport : dédoublonnage + impression/PDF robustes (SANS template strings) -->
   <script>
-    // 1) Dédoublonnage au chargement (sécurité)
-    document.addEventListener('DOMContentLoaded', () => {
-      const modals = document.querySelectorAll('#reportModal');
+    // Dédoublonnage au chargement (sécurité)
+    document.addEventListener('DOMContentLoaded', function () {
+      var modals = document.querySelectorAll('#reportModal');
       if (modals.length > 1) {
-        for (let i = 1; i < modals.length; i++) modals[i].remove();
+        for (var i = 1; i < modals.length; i++) modals[i].remove();
       }
     });
 
-    // 2) Ouvrir/fermer le modal rapport
+    // Ouvrir/fermer le modal rapport
     window.openReportForm = function () {
-      const modal = document.getElementById('reportModal');
+      var modal = document.getElementById('reportModal');
       if (modal) { modal.style.display = 'flex'; }
     };
     window.closeReportForm = function () {
-      const modal = document.getElementById('reportModal');
+      var modal = document.getElementById('reportModal');
       if (modal) { modal.style.display = 'none'; }
     };
 
-    // 3) Construction du HTML d’impression à partir du formulaire
-    function buildReportHTML(values) {
-      return `
-        <div style="font-family: Arial, sans-serif; color:#000;">
-          <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
-            <img src="logikart-logo.png" alt="LOGIKART" style="height:54px;" />
-            <h2 style="margin:0;">Rapport d’intervention LOGIKART</h2>
-          </div>
+    // Construit un DOM (pas une string) pour éviter toute erreur de syntaxe
+    function buildReportNode(values) {
+      function el(tag, attrs, text) {
+        var n = document.createElement(tag);
+        if (attrs) { for (var k in attrs) { if (Object.prototype.hasOwnProperty.call(attrs,k)) n.setAttribute(k, attrs[k]); } }
+        if (text) { n.textContent = text; }
+        return n;
+      }
+      function row() { var r = el('div', null, null); r.style.display='flex'; r.style.gap='12px'; return r; }
+      function cell(label, value) {
+        var d = el('div', null, null); d.style.flex='1';
+        var b = el('strong', null, label + ' '); d.appendChild(b);
+        d.appendChild(document.createTextNode(value || ''));
+        return d;
+      }
+      function tableOneCol(title, text) {
+        var t = el('table', null, null); t.style.width='100%'; t.style.borderCollapse='collapse'; t.style.marginTop='12px';
+        var trh = el('tr', null, null), th = el('th', null, title);
+        th.style.textAlign='left'; th.style.border='1px solid #ddd'; th.style.padding='8px';
+        trh.appendChild(th); t.appendChild(trh);
+        var tr = el('tr', null, null), td = el('td', null, null);
+        td.style.border='1px solid #ddd'; td.style.padding='8px';
+        td.innerHTML = (text || '').replace(/\n/g,'<br>');
+        tr.appendChild(td); t.appendChild(tr);
+        return t;
+      }
 
-          <div style="display:flex; gap:12px; margin:6px 0;">
-            <div style="flex:1;"><strong>N° Ticket :</strong> ${values.ticket}</div>
-            <div style="flex:1;"><strong>Date :</strong> ${values.interventionDate}</div>
-          </div>
-          <div style="display:flex; gap:12px; margin:6px 0;">
-            <div style="flex:1;"><strong>Technicien :</strong> ${values.technician}</div>
-            <div style="flex:1;"><strong>Site :</strong> ${values.siteAddress}</div>
-          </div>
+      var root = el('div', null, null);
+      root.style.fontFamily = 'Arial, sans-serif';
+      root.style.color = '#000';
 
-          <table style="width:100%; border-collapse:collapse; margin-top:12px;">
-            <tr><th style="text-align:left; border:1px solid #ddd; padding:8px;">Travail à faire</th></tr>
-            <tr><td style="border:1px solid #ddd; padding:8px;">${values.todo.replace(/\n/g,'<br>')}</td></tr>
-          </table>
+      var header = el('div', null, null);
+      header.style.display='flex'; header.style.alignItems='center'; header.style.gap='12px'; header.style.marginBottom='12px';
+      var logo = el('img', { src: 'logikart-logo.png', alt: 'LOGIKART' }, null); logo.style.height='54px';
+      var h2 = el('h2', null, 'Rapport d’intervention LOGIKART'); h2.style.margin='0';
+      header.appendChild(logo); header.appendChild(h2);
+      root.appendChild(header);
 
-          <table style="width:100%; border-collapse:collapse; margin-top:12px;">
-            <tr><th style="text-align:left; border:1px solid #ddd; padding:8px;">Travail effectué</th></tr>
-            <tr><td style="border:1px solid #ddd; padding:8px;">${values.done.replace(/\n/g,'<br>')}</td></tr>
-          </table>
+      var r1 = row(); r1.appendChild(cell('N° Ticket :', values.ticket)); r1.appendChild(cell('Date :', values.interventionDate)); root.appendChild(r1);
+      var r2 = row(); r2.appendChild(cell('Technicien :', values.technician)); r2.appendChild(cell('Site :', values.siteAddress)); root.appendChild(r2);
 
-          <div style="display:flex; gap:12px; margin-top:12px;">
-            <div style="flex:1;"><strong>Arrivée :</strong> ${values.start}</div>
-            <div style="flex:1;"><strong>Départ :</strong> ${values.end}</div>
-          </div>
+      root.appendChild(tableOneCol('Travail à faire', values.todo));
+      root.appendChild(tableOneCol('Travail effectué', values.done));
 
-          <div style="display:flex; gap:12px; margin-top:16px;">
-            <div style="flex:1;"><strong>Signature technicien :</strong> ${values.signTech || ''}</div>
-            <div style="flex:1;"><strong>Signature client :</strong> ${values.signClient || ''}</div>
-          </div>
-        </div>
-      `;
+      var r3 = row(); r3.appendChild(cell('Arrivée :', values.start)); r3.appendChild(cell('Départ :', values.end)); root.appendChild(r3);
+
+      var r4 = row(); r4.appendChild(cell('Signature technicien :', values.signTech || '')); r4.appendChild(cell('Signature client :', values.signClient || '')); root.appendChild(r4);
+
+      return root;
     }
 
     function getReportValues() {
-      const f = document.getElementById('reportForm');
-      const get = (name) => (f.querySelector(\`[name="\${name}"]\`)?.value || '').trim();
+      var f = document.getElementById('reportForm');
+      function get(name){ var el = f.querySelector('[name="'+name+'"]'); return (el && el.value ? el.value.trim() : ''); }
       return {
         ticket: get('ticket'),
         interventionDate: get('interventionDate'),
@@ -388,43 +394,38 @@
         start: get('start'),
         end: get('end'),
         signTech: get('signTech'),
-        signClient: get('signClient'),
+        signClient: get('signClient')
       };
     }
 
-    // 4) Impression robuste : nouvelle fenêtre, injecte HTML + styles, attend images, puis imprime
+    // Impression robuste : nouvelle fenêtre, injecte DOM + styles, attend images, puis imprime
     window.printReport = function () {
-      const html = buildReportHTML(getReportValues());
-      const win = window.open('', '_blank');
+      var node = buildReportNode(getReportValues());
+
+      var win = window.open('', '_blank');
       if (!win) { alert("Le navigateur a bloqué la fenêtre d'impression."); return; }
 
-      const styles = `
-        <style>
-          @page { size: A4; margin: 12mm; }
-          body { font-family: Arial, sans-serif; }
-          img { max-width: 100%; height: auto; }
-          table { width:100%; border-collapse:collapse; }
-          th, td { border:1px solid #ddd; padding:8px; }
-        </style>
-      `;
-
       win.document.open();
-      win.document.write(\`<!doctype html><html><head><meta charset="utf-8"><title>Rapport d’intervention</title>\${styles}</head><body>\${html}</body></html>\`);
+      win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Rapport d’intervention</title>');
+      win.document.write('<style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif}img{max-width:100%;height:auto}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px}</style>');
+      win.document.write('</head><body></body></html>');
       win.document.close();
 
-      const afterLoad = () => {
-        const images = win.document.images;
+      win.document.body.appendChild(node);
+
+      var afterLoad = function () {
+        var images = win.document.images;
         if (!images || images.length === 0) {
-          setTimeout(() => { win.focus(); win.print(); win.close(); }, 50);
+          setTimeout(function(){ win.focus(); win.print(); win.close(); }, 50);
           return;
         }
-        let loaded = 0;
-        const done = () => setTimeout(() => { win.focus(); win.print(); win.close(); }, 50);
-        Array.from(images).forEach(img => {
+        var loaded = 0;
+        var done = function(){ setTimeout(function(){ win.focus(); win.print(); win.close(); }, 50); };
+        Array.prototype.forEach.call(images, function(img){
           if (img.complete) {
-            if (++loaded === images.length) done();
+            loaded++; if (loaded === images.length) done();
           } else {
-            img.onload = img.onerror = () => { if (++loaded === images.length) done(); };
+            img.onload = img.onerror = function(){ loaded++; if (loaded === images.length) done(); };
           }
         });
       };
@@ -433,31 +434,32 @@
       else win.onload = afterLoad;
     };
 
-    // 5) Génération PDF robuste : clone visible hors écran → html2pdf → suppression
-    window.generatePDF = async function () {
-      const values = getReportValues();
-      const tmp = document.createElement('div');
+    // Génération PDF robuste : clone visible hors écran → html2pdf → suppression
+    window.generatePDF = function () {
+      var values = getReportValues();
+      var tmp = document.createElement('div');
       tmp.id = 'reportToPdf';
       tmp.style.position = 'fixed';
       tmp.style.left = '-9999px';
       tmp.style.top = '0';
-      tmp.style.width = '794px'; /* A4 portrait ~ 210mm @96dpi ≈ 794px */
+      tmp.style.width = '794px';
       tmp.style.background = '#fff';
-      tmp.innerHTML = buildReportHTML(values);
+      var node = buildReportNode(values);
+      tmp.appendChild(node);
       document.body.appendChild(tmp);
 
-      const opt = {
+      var opt = {
         margin:       10,
         filename:     'rapport_intervention.pdf',
         image:        { type: 'jpeg', quality: 0.95 },
         html2canvas:  { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
         jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
       };
-      try {
-        await html2pdf().set(opt).from(tmp).save();
-      } finally {
+      html2pdf().set(opt).from(tmp).save().then(function(){
         document.body.removeChild(tmp);
-      }
+      }).catch(function(){
+        document.body.removeChild(tmp);
+      });
     };
   </script>
 </body>
