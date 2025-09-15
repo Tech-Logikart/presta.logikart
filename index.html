@@ -1,12 +1,9 @@
-# `index.html`
-
-```html
 <!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>LOGIKART - Carte des Prestataires</title>
+  <title>Carte des Prestataires</title>
 
   <link rel="stylesheet" href="style.css" />
   <link rel="icon" href="logikart-logo.png" />
@@ -17,37 +14,63 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
 
-  <!-- Styles correctifs locaux (minimes) -->
+  <!-- Patchs pour un burger toujours cliquable -->
   <style>
-    header { position: sticky; top: 0; z-index: 3000; background: #004080; color: #fff; padding: 20px 12px 12px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
-    header h1 { margin: 0; font-size: 20px; font-weight: 600; color:#fff !important; }
+    /* Header visuel (logo + titre) */
+    header {
+      position: sticky; top: 0; z-index: 3000;
+      background: #004080; color: #fff;
+      padding: 20px 12px 12px;
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      text-align: center;
+    }
+
+    /* Burger fixé au-dessus de tout (même la carte) */
+    #burgerMenu{
+      position: fixed !important; top:12px !important; right:12px !important;
+      user-select:none; cursor:pointer; font-size:20px;
+      background:#fff; color:#000; border:1px solid #eee; border-radius:8px;
+      padding:6px 10px; line-height:1; z-index: 99999 !important;
+      box-shadow:0 6px 20px rgba(0,0,0,.08);
+    }
+    #menuDropdown{
+      position: fixed !important; top:56px !important; right:12px !important;
+      display:none; z-index: 99998 !important;
+      background:#fff; border:1px solid #eee; border-radius:8px;
+      padding:6px 0; min-width:240px; box-shadow:0 6px 20px rgba(0,0,0,.12);
+    }
+    #menuDropdown ul{ list-style:none; margin:0; padding:0; }
+    #menuDropdown li{ padding:10px 14px; cursor:pointer; }
+    #menuDropdown li:hover{ background:#f6f6f6; }
+    #menuDropdown li.divider{ border-top:1px solid #eee; margin:6px 0 0 0; padding:0; }
+
     body, html { height:100%; }
     #map { width:100%; height:80vh; }
-    /* Panneau Prestataires : fixe */
-    #providerList { position: fixed; top: 120px; right: 12px; z-index: 3500; width: min(380px, 92vw); }
+    #providerList { display:none; max-height:50vh; overflow:auto; padding:12px; }
+
+    /* Modals génériques */
+    .modal, .modal-overlay {
+      display:none; position:fixed; inset:0; background:rgba(0,0,0,.4);
+      align-items:center; justify-content:center; z-index:2000;
+    }
+    .modal-content{
+      background:#fff; padding:16px; border-radius:12px;
+      max-width:720px; width:min(92vw,720px); max-height:85vh; overflow:auto;
+    }
+    .form-buttons{ display:flex; gap:8px; flex-wrap:wrap; }
   </style>
 </head>
 
 <body>
-  <!-- En-tête -->
+  <!-- En-tête (logo + titre) -->
   <header>
     <img src="logikart-logo.png" alt="LOGIKART" style="height:60px;" />
-    <h1>LOGIKART - Carte des Prestataires</h1>
-    <span id="syncBadge" style="font-size:12px; padding:2px 8px; border-radius:999px; background:#9e9e9e; color:#fff;">Sync: …</span>
+    <h1 style="margin:0;">LOGIKART - Réseau de prestataires informatiques</h1>
   </header>
 
-  <!-- Burger -->
-  <div
-    id="burgerMenu"
-    role="button"
-    tabindex="0"
-    aria-haspopup="true"
-    aria-expanded="false"
-    aria-controls="menuDropdown"
-    onclick="window.__toggleMenu && window.__toggleMenu(event)"
-  >☰</div>
-
-  <div id="menuDropdown" aria-label="Menu">
+  <!-- Burger (en dehors du header pour éviter les stacking contexts) -->
+  <div id="burgerMenu" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false" aria-controls="menuDropdown">☰</div>
+  <div id="menuDropdown">
     <ul>
       <li onclick="toggleProviderList()">📋 Prestataires</li>
       <li onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
@@ -59,22 +82,6 @@
     </ul>
   </div>
 
-  <!-- Script DU BURGER (autonome) -->
-  <script>
-    (function () {
-      var burger = document.getElementById('burgerMenu');
-      var dropdown = document.getElementById('menuDropdown');
-      function closeMenu(){ dropdown.style.display='none'; burger.setAttribute('aria-expanded','false'); }
-      function toggleMenu(e){ if(e) e.stopPropagation(); var open=dropdown.style.display==='block'; dropdown.style.display=open?'none':'block'; burger.setAttribute('aria-expanded', String(!open)); }
-      window.__toggleMenu = toggleMenu;
-      burger.addEventListener('click', toggleMenu);
-      burger.addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggleMenu(e);} });
-      dropdown.addEventListener('click', function(e){ e.stopPropagation(); });
-      document.addEventListener('click', function(e){ if(!dropdown.contains(e.target) && e.target!==burger) closeMenu(); });
-      document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeMenu(); });
-    })();
-  </script>
-
   <!-- Barre d’action -->
   <section style="padding:10px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
     <input type="text" id="cityInput" placeholder="Ville" style="width:260px; padding:8px; border:1px solid #ccc; border-radius:6px;" />
@@ -85,14 +92,14 @@
   <!-- Carte -->
   <div id="map"></div>
 
-  <!-- Panneau Prestataires -->
-  <aside id="providerList" style="display:none;"></aside>
+  <!-- Liste des prestataires -->
+  <aside id="providerList"></aside>
 
   <!-- ===== Modal Prestataire ===== -->
-  <div id="providerFormSection" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="providerFormTitle">
+  <div id="providerFormSection" class="modal-overlay">
     <div class="modal-content">
       <form id="providerForm">
-        <h2 id="providerFormTitle">Ajouter un prestataire</h2>
+        <h2>Ajouter un prestataire</h2>
         <input type="text" id="companyName" placeholder="RAISON SOCIALE" required />
         <input type="text" id="contactName" placeholder="NOM" required />
         <input type="text" id="firstName" placeholder="PRÉNOM" />
@@ -108,10 +115,11 @@
         </div>
       </form>
       <script>
-        var rateInput = document.getElementById("rate");
-        var travelInput = document.getElementById("travelFees");
-        var totalInput = document.getElementById("totalCost");
-        function updateTotal(){ var r=parseFloat(rateInput.value)||0, t=parseFloat(travelInput.value)||0; totalInput.value=(r+t).toFixed(2)+' €'; }
+        // Calcul auto du total HT
+        const rateInput = document.getElementById("rate");
+        const travelInput = document.getElementById("travelFees");
+        const totalInput = document.getElementById("totalCost");
+        function updateTotal(){ const r=parseFloat(rateInput.value)||0, t=parseFloat(travelInput.value)||0; totalInput.value=(r+t).toFixed(2)+' €'; }
         rateInput.addEventListener("input", updateTotal);
         travelInput.addEventListener("input", updateTotal);
       </script>
@@ -119,12 +127,12 @@
   </div>
 
   <!-- ===== Modal Rapport d’intervention ===== -->
-  <div id="reportModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
+  <div id="reportModal" class="modal">
     <div class="modal-content">
       <span class="close" onclick="closeReportForm()">×</span>
       <form id="reportForm">
         <img src="logikart-logo.png" alt="LOGIKART" class="logo" style="height:60px;" />
-        <h2 id="reportTitle">Rapport d’intervention LOGIKART</h2>
+        <h2>Rapport d’intervention LOGIKART</h2>
         <label>Numéro de ticket :</label>
         <input type="text" name="ticket" required />
         <label>Date d’intervention :</label>
@@ -152,28 +160,23 @@
           <button type="button" onclick="closeReportForm()">❌ Fermer</button>
         </div>
       </form>
+      <div id="reportContent" style="display:none;"></div>
     </div>
   </div>
 
-  <!-- ===== Zone d’impression/PDF (visible hors écran) ===== -->
-  <div id="reportPrint"></div>
-
   <!-- ===== Modal Itinéraire ===== -->
-  <div id="itineraryModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="itineraryTitle">
+  <div id="itineraryModal" class="modal">
     <div class="modal-content">
       <span class="close" onclick="closeItineraryModal()">×</span>
-      <h2 id="itineraryTitle">🧭 Calcul d'itinéraire</h2>
-      <form id="itineraryForm" onsubmit="return false;">
-        <label class="full">Adresse de départ :</label>
-        <input class="full" type="text" id="startAddress" required />
-
-        <div id="extraDestinations" class="full"></div>
-
-        <label class="full">Adresse de destination :</label>
-        <input class="full" type="text" id="endAddress" required />
-
-        <div class="controls-row">
-          <button id="addStepBtn" type="button" onclick="addDestinationField()">➕ Ajouter une étape</button>
+      <h2>🧭 Calcul d'itinéraire</h2>
+      <form id="itineraryForm">
+        <label>Adresse de départ :</label>
+        <input type="text" id="startAddress" required />
+        <div id="extraDestinations"></div>
+        <button type="button" onclick="addDestinationField()">➕ Ajouter une étape</button>
+        <label>Adresse de destination :</label>
+        <input type="text" id="endAddress" required />
+        <div class="form-buttons">
           <button type="button" onclick="calculateRoute()">🚗 Calculer l’itinéraire</button>
           <button id="exportPdfBtn" type="button" onclick="exportItineraryToPDF()" style="display:none;">📄 Exporter en PDF</button>
         </div>
@@ -183,10 +186,10 @@
   </div>
 
   <!-- ===== Modal Import ===== -->
-  <div id="importModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="importTitle">
+  <div id="importModal" class="modal">
     <div class="modal-content">
       <span class="close" onclick="closeImportModal()">×</span>
-      <h2 id="importTitle">↕️ Importer des prestataires</h2>
+      <h2>↕️ Importer des prestataires</h2>
       <p>Fichiers acceptés : <strong>JSON</strong> ou <strong>CSV</strong> (entêtes FR/EN reconnus).</p>
       <input type="file" id="importFile" accept=".json,.csv" />
       <label style="display:block; margin-top:8px;">
@@ -212,7 +215,7 @@
 
   <!-- Initialisation Firebase + Auth anonyme -->
   <script>
-    var firebaseConfig = {
+    const firebaseConfig = {
       apiKey: "AIzaSyA59iB-7skqRFngoF24VkAHZMBSIonh7Ho",
       authDomain: "lgk-presta.firebaseapp.com",
       projectId: "lgk-presta",
@@ -221,17 +224,19 @@
       appId: "1:386610630784:web:015bb6c04156918d369665"
     };
     firebase.initializeApp(firebaseConfig);
-    var db = firebase.firestore();
-    var auth = firebase.auth();
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+    // Exposé pour script.js
     window.db = db;
 
-    window.authReady = (async function () {
+    // Promise d’auth anonyme utilisée par script.js
+    window.authReady = (async () => {
       try {
         if (auth.setPersistence) {
           await auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
         }
       } catch (e) {
-        console.warn("[Auth] setPersistence:", (e && e.message) || e);
+        console.warn("[Auth] setPersistence:", e?.message || e);
       }
       try {
         await auth.signInAnonymously();
@@ -242,264 +247,45 @@
     })();
   </script>
 
-  <!-- PDF & rendu de carte -->
-  <!-- ⚠️ Garder UNIQUEMENT html2pdf.bundle (n’ajoute PAS html2canvas séparé, sinon PDF blanc) -->
+  <!-- PDF & rendu de carte (pour itinéraire PDF) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
 
   <!-- Script principal -->
   <script src="script.js"></script>
 
-  <!-- Correctifs : techniciens + impression/PDF robustes (SOURCE DE VÉRITÉ) -->
+  <!-- Gestion du burger (clic + clavier + fermeture extérieure) -->
   <script>
-    /* ========= 1) Auto-remplir la datalist des techniciens ========= */
-    (function setupTechnicianDatalist(){
-      var filled = false;
-      function setOptions(list) {
-        var dl = document.getElementById('technicianList');
-        if (!dl) return;
-        dl.innerHTML = '';
-        var uniq = Object.create(null);
-        list.forEach(function(name){
-          var n = (name || '').trim();
-          if (!n) return;
-          if (uniq[n]) return;
-          uniq[n] = true;
-          var opt = document.createElement('option');
-          opt.value = n;
-          dl.appendChild(opt);
-        });
-        filled = true;
+    (function () {
+      const burger = document.getElementById('burgerMenu');
+      const dropdown = document.getElementById('menuDropdown');
+
+      function closeMenu() {
+        dropdown.style.display = 'none';
+        burger.setAttribute('aria-expanded', 'false');
       }
-      async function fetchFromFirestore(){
-        if (!window.db) return;
-        try {
-          var snapTech = await db.collection('technicians').limit(200).get();
-          if (!snapTech.empty) {
-            var arr = [];
-            snapTech.forEach(function(d){ var v=d.data(); if (v && v.name) arr.push(String(v.name)); });
-            if (arr.length) { setOptions(arr); return; }
-          }
-          var snapProv = await db.collection('prestataires').limit(500).get();
-          if (!snapProv.empty) {
-            var arr2 = [];
-            snapProv.forEach(function(d){
-              var v=d.data()||{};
-              var first = (v.firstName||'').trim();
-              var last = (v.contactName||'').trim();
-              var full = (first && last) ? (first+' '+last) : (first || last || (v.companyName||'').trim());
-              if (full) arr2.push(full);
-            });
-            if (arr2.length) { setOptions(arr2); return; }
-          }
-        } catch(e){ console.warn('[Technicians] Firestore:', e); }
+      function toggleMenu(e) {
+        if (e) e.stopPropagation(); // évite la fermeture immédiate
+        const open = dropdown.style.display === 'block';
+        dropdown.style.display = open ? 'none' : 'block';
+        burger.setAttribute('aria-expanded', String(!open));
       }
-      function cacheSnapshot(){
-        var arr=[];
-        try {
-          var local = JSON.parse(localStorage.getItem('providers')) || [];
-          local.forEach(function(p){
-            var first=(p.firstName||'').trim(), last=(p.contactName||'').trim();
-            var full = (first && last) ? (first+' '+last) : (first || last || (p.companyName||'').trim());
-            if (full) arr.push(full);
-          });
-        } catch(e){}
-        return arr;
-      }
-      // Ouverture du modal → fallback cache immédiat puis Firestore
-      window.openReportForm = (function(orig){
-        return function(){
-          var modal = document.getElementById('reportModal');
-          if (modal) { modal.style.display='flex'; }
-          // instantané cache
-          var arr = cacheSnapshot();
-          if (arr.length) setOptions(arr);
-          // puis Firestore
-          if (!filled) {
-            fetchFromFirestore().then(function(){ if (!filled) { var arr2 = cacheSnapshot(); if (arr2.length) setOptions(arr2); } });
-          }
-        };
-      })(window.openReportForm);
+
+      // Nettoie d'éventuels anciens listeners
+      burger.replaceWith(burger.cloneNode(true));
+      const newBurger = document.getElementById('burgerMenu');
+
+      newBurger.addEventListener('click', toggleMenu);
+      newBurger.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleMenu(e); }
+      });
+      dropdown.addEventListener('click', (e) => e.stopPropagation());
+      document.addEventListener('click', (e) => {
+        if (!dropdown.contains(e.target) && e.target !== newBurger) closeMenu();
+      });
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
     })();
-
-    /* ========= 2) Rapport : DOM + attente images ========= */
-    function buildReportNode(values) {
-      function el(tag, attrs, text) {
-        var n = document.createElement(tag);
-        if (attrs) { for (var k in attrs) { if (Object.prototype.hasOwnProperty.call(attrs,k)) n.setAttribute(k, attrs[k]); } }
-        if (text) { n.textContent = text; }
-        return n;
-      }
-      function row() { var r = el('div', null, null); r.style.display='flex'; r.style.gap='12px'; return r; }
-      function cell(label, value) {
-        var d = el('div', null, null); d.style.flex='1';
-        var b = el('strong', null, label + ' '); d.appendChild(b);
-        d.appendChild(document.createTextNode(value || ''));
-        return d;
-      }
-      function tableOneCol(title, text) {
-        var t = el('table', null, null); t.style.width='100%'; t.style.borderCollapse='collapse'; t.style.marginTop='12px';
-        var trh = el('tr', null, null), th = el('th', null, title);
-        th.style.textAlign='left'; th.style.border='1px solid #ddd'; th.style.padding='8px';
-        trh.appendChild(th); t.appendChild(trh);
-        var tr = el('tr', null, null), td = el('td', null, null);
-        td.style.border='1px solid #ddd'; td.style.padding='8px';
-        td.innerHTML = (text || '').replace(/\n/g,'<br>');
-        tr.appendChild(td); t.appendChild(tr);
-        return t;
-      }
-
-      var root = el('div', null, null);
-      root.style.fontFamily = 'Arial, sans-serif';
-      root.style.color = '#000';
-      root.style.background = '#fff';
-
-      var header = el('div', null, null);
-      header.style.display='flex'; header.style.alignItems='center'; header.style.gap='12px'; header.style.marginBottom='12px';
-      var logo = el('img', { src: 'logikart-logo.png', alt: 'LOGIKART', crossorigin: 'anonymous' }, null); logo.style.height='54px';
-      var h2 = el('h2', null, 'Rapport d’intervention LOGIKART'); h2.style.margin='0';
-      header.appendChild(logo); header.appendChild(h2);
-      root.appendChild(header);
-
-      var r1 = row(); r1.appendChild(cell('N° Ticket :', values.ticket)); r1.appendChild(cell('Date :', values.interventionDate)); root.appendChild(r1);
-      var r2 = row(); r2.appendChild(cell('Technicien :', values.technician)); r2.appendChild(cell('Site :', values.siteAddress)); root.appendChild(r2);
-
-      root.appendChild(tableOneCol('Travail à faire', values.todo));
-      root.appendChild(tableOneCol('Travail effectué', values.done));
-
-      var r3 = row(); r3.appendChild(cell('Arrivée :', values.start)); r3.appendChild(cell('Départ :', values.end)); root.appendChild(r3);
-
-      var r4 = row(); r4.appendChild(cell('Signature technicien :', values.signTech || '')); r4.appendChild(cell('Signature client :', values.signClient || '')); root.appendChild(r4);
-
-      return root;
-    }
-
-    function getReportValues() {
-      var f = document.getElementById('reportForm');
-      function get(name){ var el = f.querySelector('[name="'+name+'"]'); return (el && el.value ? el.value.trim() : ''); }
-      return {
-        ticket: get('ticket'),
-        interventionDate: get('interventionDate'),
-        siteAddress: get('siteAddress'),
-        technician: get('technician'),
-        todo: get('todo'),
-        done: get('done'),
-        start: get('start'),
-        end: get('end'),
-        signTech: get('signTech'),
-        signClient: get('signClient')
-      };
-    }
-
-    function waitImages(container, cb) {
-      var images = container.querySelectorAll('img');
-      if (!images || images.length === 0) { cb(); return; }
-      var done = 0, total = images.length;
-      function check(){ done++; if (done >= total) cb(); }
-      Array.prototype.forEach.call(images, function(img){
-        if (img.complete) check();
-        else { img.onload = img.onerror = check; }
-      });
-    }
-
-    // Impression robuste
-    window.printReport = function () {
-      var node = buildReportNode(getReportValues());
-      var win = window.open('', '_blank');
-      if (!win) { alert("Le navigateur a bloqué la fenêtre d'impression."); return; }
-
-      win.document.open();
-      win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Rapport d’intervention</title>');
-      win.document.write('<style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif;background:#fff}img{max-width:100%;height:auto}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px}</style>');
-      win.document.write('</head><body></body></html>');
-      win.document.close();
-
-      win.document.body.appendChild(node);
-
-      var doPrint = function(){ setTimeout(function(){ win.focus(); win.print(); /*win.close();*/ }, 50); };
-      waitImages(win.document, doPrint);
-    };
-
-    // PDF robuste (attend images avant html2pdf)
-    window.generatePDF = function () {
-      if (typeof html2pdf === 'undefined') { alert('Librairie PDF introuvable'); return; }
-      var values = getReportValues();
-      var tmp = document.createElement('div');
-      tmp.id = 'reportToPdf';
-      tmp.style.position = 'fixed';
-      tmp.style.left = '-9999px';
-      tmp.style.top = '0';
-      tmp.style.width = '794px';
-      tmp.style.background = '#fff';
-      var node = buildReportNode(values);
-      tmp.appendChild(node);
-      document.body.appendChild(tmp);
-
-      waitImages(tmp, function(){
-        var opt = {
-          margin:       10,
-          filename:     'rapport_intervention.pdf',
-          image:        { type: 'jpeg', quality: 0.95 },
-          html2canvas:  { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
-          jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
-        html2pdf().set(opt).from(tmp).save().then(function(){
-          document.body.removeChild(tmp);
-        }).catch(function(err){
-          console.error('PDF error:', err);
-          document.body.removeChild(tmp);
-        });
-      });
-    };
   </script>
 </body>
 </html>
-```
-
----
-
-# `script.js`
-
-```js
-// ======================= LOGIKART / script.js =======================
-// Carte Leaflet — vue Europe par défaut
-const map = L.map('map').setView([54, 15], 4);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© OpenStreetMap contributors'
-}).addTo(map);
-
-// --- utilitaire debounce (retarde l'appel tant que ça "bouge") ---
-function debounce(fn, delay = 120) {
-  let t;
-  return (...args) => {
-    clearTimeout(t);
-    t = setTimeout(() => fn(...args), delay);
-  };
-}
-
-// ---------- Marqueurs performants (index + layer + cluster optionnel) ----------
-let markerIndex = new Map(); // key -> { marker, data }
-let markerLayer;
-if (L.markerClusterGroup) {
-  markerLayer = L.markerClusterGroup({ chunkedLoading: true });
-} else {
-  markerLayer = L.layerGroup();
-}
-map.addLayer(markerLayer);
-
-function markerKey(p) {
-  return p.id || (String(p.email || '').toLowerCase() + '|' + String(p.phone || ''));
-}
-
-function createMarker(p) {
-  const m = L.marker([p.lat, p.lon]).bindPopup(
-    `<strong>${p.companyName || ""}</strong><br>${p.contactName || ""}<br>${p.email || ""}<br>${p.phone || ""}<br><em>${p.address || ""}</em>`
-  );
-  markerLayer.addLayer(m);
-  markerIndex.set(markerKey(p), { marker: m, data: p });
-  return m;
-}
-function upsertMarker(p) {
-  const key = markerKey(p);
-  const existing = markerIndex.get
-```
