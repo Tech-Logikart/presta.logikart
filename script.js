@@ -1,13 +1,4 @@
-# Write a clean, restored version of script.js based on the user's original (from earlier),
-# with minimal, safe fixes:
-#  - Keep all functionality.
-#  - Do NOT override header/burger positioning in DOMContentLoaded (fixes title centering).
-#  - Do NOT auto-render #reportContent inside openReportForm (prevents "double form").
-#  - Keep the robust generatePDF implementation from the original.
-
-from pathlib import Path
-
-script = r"""// ======================= LOGIKART / script.js =======================
+// ======================= LOGIKART / script.js =======================
 // Carte Leaflet — vue Europe par défaut
 const map = L.map('map').setView([54, 15], 4);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -1095,7 +1086,3 @@ window.handleImport = handleImport;
 //   tech-logikart.github.io   (et localhost si besoin)
 // Active "Anonymous" et publie les "Rules" Firestore.
 // --------------------------------------------------------------------
-"""
-
-Path('/mnt/data/script.js').write_text(script, encoding='utf-8')
-print("Restored and fixed /mnt/data/script.js")
