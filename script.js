@@ -652,7 +652,7 @@ function parseCSVToObjects(text) {
   }
 
   const headersRaw = parseLine(lines[0]).map(h => h.trim());
-  const normalizeKey = (k) => k.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/gu, "").replace(/\s+/g, "").replace(/[^a-z0-9]/g, "");
+  const normalizeKey = (k) => k.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "").replace(/[^a-z0-9]/g, "");
 
   const headerMap = {};
   headersRaw.forEach((h, i) => {
@@ -812,7 +812,7 @@ function exportItineraryToPDF() {
       <p><strong>Départ :</strong> ${start}</p>
       ${extras.map((dest, i) => `<p><strong>Étape ${i + 1} :</strong> ${dest}</p>`).join("")}
       <p><strong>Arrivée :</strong> ${end}</p>
-      <p style="margin-top:10px;">${distanceText.replace(/\n/g, "<br>")}</p>
+      <p style="margin-top:10px;">${distanceText.replace(/\\n/g, "<br>")}</p>
       <hr>
       <p><strong>Carte de l’itinéraire :</strong></p>
       <img src="${mapImage}" style="width:100%; max-height:500px; margin-top:10px;" />
@@ -877,30 +877,25 @@ function buildReportHTML(values) {
   `;
 }
 
-
 function openReportForm() {
-  const providerModal = document.getElementById("providerFormSection");
-  if (providerModal) providerModal.style.display = "none";
-  const itineraryModal = document.getElementById("itineraryModal");
-  if (itineraryModal) itineraryModal.style.display = "none";
-  const importModal = document.getElementById("importModal");
-  if (importModal) importModal.style.display = "none";
-
   const modal = document.getElementById("reportModal");
   if (!modal) return;
   modal.style.display = "flex";
 
+  // Ne pas pré-générer l'aperçu pour éviter l'effet "double formulaire"
   const reportContent = document.getElementById("reportContent");
-  if (reportContent) { reportContent.innerHTML = ""; reportContent.style.display = "none"; }
+  if (reportContent) {
+    reportContent.innerHTML = "";
+    reportContent.style.display = "none";
+  }
 
   populateTechnicianSuggestions();
 }
-
 function closeReportForm() { const modal = document.getElementById("reportModal"); if (modal) modal.style.display = "none"; }
 
 function printReport() {
   const form = document.getElementById("reportForm");
-  const get = id => form.querySelector(`[name="${id}"] ) || form.querySelector(`#${id}`);
+  const get = id => form.querySelector(`[name="${id}"]`) || form.querySelector(`#${id}`);
   const values = {
     ticket: get("ticket")?.value,
     date: get("interventionDate")?.value,
@@ -917,39 +912,92 @@ function printReport() {
   const html = buildReportHTML(values);
   const w = window.open('', '_blank');
   w.document.open();
-  w.document.write(`\n    <html>\n      <head>\n        <meta charset="utf-8">\n        <title>Rapport d’intervention</title>\n        <style>\n          @page { size: A4; margin: 12mm; }\n          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }\n          h2 { margin: 0; }\n        </style>\n      </head>\n      <body>${html}</body>\n    </html>\n  `);
+  w.document.write(`
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Rapport d’intervention</title>
+        <style>
+          @page { size: A4; margin: 12mm; }
+          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          h2 { margin: 0; }
+        </style>
+      </head>
+      <body>${html}</body>
+    </html>
+  `);
   w.document.close();
   w.focus();
+
   const imgs = Array.from(w.document.images);
-  const waitImgs = Promise.all(imgs.map(img => img.complete ? Promise.resolve() : new Promise(res => img.onload = img.onerror = res)));
-  waitImgs.then(() => { w.print(); });
+  const waitImgs = Promise.all(imgs.map(img => img.complete ? Promise.resolve() :
+    new Promise(res => img.onload = img.onerror = res)
+  ));
+  waitImgs.then(() => {
+    w.print();
+    // w.close(); // décommente si tu veux fermer l’onglet automatiquement
+  });
 }
 
 function generatePDF() {
   const form = document.getElementById("reportForm");
-  const get = id => form.querySelector(`[name="${id}"] ) || form.querySelector(`#${id}`);
+  const get = id => form.querySelector(`[name="${id}"]`) || form.querySelector(`#${id}`);
   const values = {
-    ticket: get("ticket")?.value || "",
-    date: get("interventionDate")?.value || "",
-    site: get("siteAddress")?.value || "",
-    tech: get("technician")?.value || "",
-    todo: get("todo")?.value || "",
-    done: get("done")?.value || "",
-    start: get("start")?.value || "",
-    end: get("end")?.value || "",
-    signTech: get("signTech")?.value || "",
-    signClient: get("signClient")?.value || ""
+    ticket: get("ticket")?.value,
+    date: get("interventionDate")?.value,
+    site: get("siteAddress")?.value,
+    tech: get("technician")?.value,
+    todo: get("todo")?.value,
+    done: get("done")?.value,
+    start: get("start")?.value,
+    end: get("end")?.value,
+    signTech: get("signTech")?.value,
+    signClient: get("signClient")?.value
   };
-  if (typeof html2pdf === "undefined") { console.warn("[PDF] html2pdf non trouvé, fallback impression"); printReport(); return; }
-  const temp = document.createElement("div"); temp.style.position = "fixed"; temp.style.left = "-10000px"; temp.style.top = "0"; temp.style.width = "794px"; temp.style.background = "#fff"; temp.innerHTML = buildReportHTML(values); document.body.appendChild(temp);
+
+  // Si html2pdf n’est pas présent → fallback impression
+  if (typeof html2pdf === "undefined") {
+    console.warn("[PDF] html2pdf non trouvé, fallback impression");
+    printReport();
+    return;
+  }
+
+  // conteneur visible (offscreen) pour html2canvas/html2pdf
+  const temp = document.createElement("div");
+  temp.style.position = "fixed";
+  temp.style.left = "-10000px"; // hors écran mais rendu
+  temp.style.top = "0";
+  temp.style.width = "794px";   // ~ A4 @96dpi
+  temp.style.background = "#fff";
+  temp.innerHTML = buildReportHTML(values);
+  document.body.appendChild(temp);
+
+  // attendre les images (logo) avant rendu
   const imgs = Array.from(temp.querySelectorAll("img"));
-  const waitImgs = Promise.all(imgs.map(img => img.complete ? Promise.resolve() : new Promise(res => img.onload = img.onerror = res)));
+  const waitImgs = Promise.all(imgs.map(img => img.complete ? Promise.resolve() :
+    new Promise(res => img.onload = img.onerror = res)
+  ));
+
   waitImgs.then(() => {
-    html2pdf().set({ margin: 0.5, filename: 'rapport_intervention_LOGIKART.pdf', image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true, allowTaint: true }, jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' } }).from(temp).save()
-      .then(() => { temp.remove(); })
-      .catch(err => { console.error("[PDF] erreur", err); temp.remove(); printReport(); });
+    html2pdf().set({
+      margin: 0.5,
+      filename: 'rapport_intervention_LOGIKART.pdf',
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true, allowTaint: true },
+      jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
+    }).from(temp).save()
+      .then(() => {
+        temp.remove();
+        // form.reset(); closeReportForm(); // optionnel
+      })
+      .catch(err => {
+        console.error("[PDF] erreur", err);
+        temp.remove();
+        printReport(); // fallback impression si canvas/images bloqués
+      });
   });
 }
+
 function populateTechnicianSuggestions() {
   const datalist = document.getElementById("technicianList");
   if (!datalist) return;
@@ -964,19 +1012,12 @@ function populateTechnicianSuggestions() {
 
 // ----------------- Menu / init + Backfill coords -----------------
 document.addEventListener("DOMContentLoaded", async () => {
-  // Sécurité: garder le titre centré
-  const h1 = document.querySelector('header h1');
-  if (h1) { h1.style.margin = '0 auto'; h1.style.textAlign = 'center'; }
   // Forçage position burger en haut à droite (au cas où le CSS n'est pas chargé)
   const headerEl = document.querySelector('header');
   const burger = document.getElementById("burgerMenu");
   const dropdown = document.getElementById("menuDropdown");
-  if (headerEl) headerEl.style.position = 'relative';
-  if (burger) {
-    burger.style.position = 'absolute';
-    burger.style.top = '12px';
-    burger.style.right = '12px';
-  }
+  // (supprimé) pas d'override du header pour garder le titre centré
+  // (supprimé) pas d'override inline du burger; CSS gère déjà la position
 
   // Affichage immédiat depuis le local (en lots)
   loadProvidersFromLocalStorage();
