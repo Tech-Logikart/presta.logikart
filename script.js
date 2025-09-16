@@ -897,30 +897,7 @@ function openReportForm() {
     reportContent.style.display = "none";
   }
 
-  populateTechnicianSuggestions();
-}"]`) || form.querySelector(`#${id}`);
 
-  const values = {
-    ticket: get("ticket")?.value || "",
-    date: get("interventionDate")?.value || "",
-    site: get("siteAddress")?.value || "",
-    tech: get("technician")?.value || "",
-    todo: get("todo")?.value || "",
-    done: get("done")?.value || "",
-    start: get("start")?.value || "",
-    end: get("end")?.value || "",
-    signTech: get("signTech")?.value || "",
-    signClient: get("signClient")?.value || ""
-  };
-
-  const reportContent = document.getElementById("reportContent");
-  if (reportContent) {
-    reportContent.innerHTML = buildReportHTML(values);
-    reportContent.style.display = "block";
-  }
-
-  populateTechnicianSuggestions();
-}
 function closeReportForm() { const modal = document.getElementById("reportModal"); if (modal) modal.style.display = "none"; }
 
 function printReport() {
