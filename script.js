@@ -1031,7 +1031,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   const headerEl = document.querySelector('header');
   const burger = document.getElementById("burgerMenu");
   const dropdown = document.getElementById("menuDropdown");
-  if (headerEl) headerEl.style.position = 'relative';
   if (burger) {
     burger.style.position = 'absolute';
     burger.style.top = '12px';
