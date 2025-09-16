@@ -877,8 +877,8 @@ function buildReportHTML(values) {
   `;
 }
 
+
 function openReportForm() {
-  // Fermer toute autre modale potentiellement ouverte
   const providerModal = document.getElementById("providerFormSection");
   if (providerModal) providerModal.style.display = "none";
   const itineraryModal = document.getElementById("itineraryModal");
@@ -890,19 +890,17 @@ function openReportForm() {
   if (!modal) return;
   modal.style.display = "flex";
 
-  // Ne pas pré-générer l'aperçu pour éviter l'effet "double formulaire"
   const reportContent = document.getElementById("reportContent");
-  if (reportContent) {
-    reportContent.innerHTML = "";
-    reportContent.style.display = "none";
-  }
+  if (reportContent) { reportContent.innerHTML = ""; reportContent.style.display = "none"; }
 
+  populateTechnicianSuggestions();
+}
 
 function closeReportForm() { const modal = document.getElementById("reportModal"); if (modal) modal.style.display = "none"; }
 
 function printReport() {
   const form = document.getElementById("reportForm");
-  const get = id => form.querySelector(`[name="${id}"]`) || form.querySelector(`#${id}`);
+  const get = id => form.querySelector(`[name="${id}"] ) || form.querySelector(`#${id}`);
   const values = {
     ticket: get("ticket")?.value,
     date: get("interventionDate")?.value,
@@ -919,92 +917,39 @@ function printReport() {
   const html = buildReportHTML(values);
   const w = window.open('', '_blank');
   w.document.open();
-  w.document.write(`
-    <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Rapport d’intervention</title>
-        <style>
-          @page { size: A4; margin: 12mm; }
-          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          h2 { margin: 0; }
-        </style>
-      </head>
-      <body>${html}</body>
-    </html>
-  `);
+  w.document.write(`\n    <html>\n      <head>\n        <meta charset="utf-8">\n        <title>Rapport d’intervention</title>\n        <style>\n          @page { size: A4; margin: 12mm; }\n          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }\n          h2 { margin: 0; }\n        </style>\n      </head>\n      <body>${html}</body>\n    </html>\n  `);
   w.document.close();
   w.focus();
-
   const imgs = Array.from(w.document.images);
-  const waitImgs = Promise.all(imgs.map(img => img.complete ? Promise.resolve() :
-    new Promise(res => img.onload = img.onerror = res)
-  ));
-  waitImgs.then(() => {
-    w.print();
-    // w.close(); // décommente si tu veux fermer l’onglet automatiquement
-  });
+  const waitImgs = Promise.all(imgs.map(img => img.complete ? Promise.resolve() : new Promise(res => img.onload = img.onerror = res)));
+  waitImgs.then(() => { w.print(); });
 }
 
 function generatePDF() {
   const form = document.getElementById("reportForm");
-  const get = id => form.querySelector(`[name="${id}"]`) || form.querySelector(`#${id}`);
+  const get = id => form.querySelector(`[name="${id}"] ) || form.querySelector(`#${id}`);
   const values = {
-    ticket: get("ticket")?.value,
-    date: get("interventionDate")?.value,
-    site: get("siteAddress")?.value,
-    tech: get("technician")?.value,
-    todo: get("todo")?.value,
-    done: get("done")?.value,
-    start: get("start")?.value,
-    end: get("end")?.value,
-    signTech: get("signTech")?.value,
-    signClient: get("signClient")?.value
+    ticket: get("ticket")?.value || "",
+    date: get("interventionDate")?.value || "",
+    site: get("siteAddress")?.value || "",
+    tech: get("technician")?.value || "",
+    todo: get("todo")?.value || "",
+    done: get("done")?.value || "",
+    start: get("start")?.value || "",
+    end: get("end")?.value || "",
+    signTech: get("signTech")?.value || "",
+    signClient: get("signClient")?.value || ""
   };
-
-  // Si html2pdf n’est pas présent → fallback impression
-  if (typeof html2pdf === "undefined") {
-    console.warn("[PDF] html2pdf non trouvé, fallback impression");
-    printReport();
-    return;
-  }
-
-  // conteneur visible (offscreen) pour html2canvas/html2pdf
-  const temp = document.createElement("div");
-  temp.style.position = "fixed";
-  temp.style.left = "-10000px"; // hors écran mais rendu
-  temp.style.top = "0";
-  temp.style.width = "794px";   // ~ A4 @96dpi
-  temp.style.background = "#fff";
-  temp.innerHTML = buildReportHTML(values);
-  document.body.appendChild(temp);
-
-  // attendre les images (logo) avant rendu
+  if (typeof html2pdf === "undefined") { console.warn("[PDF] html2pdf non trouvé, fallback impression"); printReport(); return; }
+  const temp = document.createElement("div"); temp.style.position = "fixed"; temp.style.left = "-10000px"; temp.style.top = "0"; temp.style.width = "794px"; temp.style.background = "#fff"; temp.innerHTML = buildReportHTML(values); document.body.appendChild(temp);
   const imgs = Array.from(temp.querySelectorAll("img"));
-  const waitImgs = Promise.all(imgs.map(img => img.complete ? Promise.resolve() :
-    new Promise(res => img.onload = img.onerror = res)
-  ));
-
+  const waitImgs = Promise.all(imgs.map(img => img.complete ? Promise.resolve() : new Promise(res => img.onload = img.onerror = res)));
   waitImgs.then(() => {
-    html2pdf().set({
-      margin: 0.5,
-      filename: 'rapport_intervention_LOGIKART.pdf',
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, allowTaint: true },
-      jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
-    }).from(temp).save()
-      .then(() => {
-        temp.remove();
-        // form.reset(); closeReportForm(); // optionnel
-      })
-      .catch(err => {
-        console.error("[PDF] erreur", err);
-        temp.remove();
-        printReport(); // fallback impression si canvas/images bloqués
-      });
+    html2pdf().set({ margin: 0.5, filename: 'rapport_intervention_LOGIKART.pdf', image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true, allowTaint: true }, jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' } }).from(temp).save()
+      .then(() => { temp.remove(); })
+      .catch(err => { console.error("[PDF] erreur", err); temp.remove(); printReport(); });
   });
 }
-
 function populateTechnicianSuggestions() {
   const datalist = document.getElementById("technicianList");
   if (!datalist) return;
