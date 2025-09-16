@@ -59,12 +59,20 @@ input, textarea, select {
 }
 
 #providerList {
+  position: fixed;
+  top: 56px;
+  right: 12px;
+  width: 360px;
+  max-height: 70vh;
+  overflow: auto;
+  z-index: 99990;
   background: white;
   border: 1px solid #ccc;
   border-radius: var(--border-radius);
-  margin: 12px;
+  margin: 0;
   padding: 12px;
   box-shadow: var(--box-shadow);
+  display: none; /* cachée par défaut, affichée via le menu */
 }
 
 .provider-entry {
