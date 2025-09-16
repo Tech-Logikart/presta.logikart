@@ -878,12 +878,27 @@ function buildReportHTML(values) {
 }
 
 function openReportForm() {
+  // Fermer toute autre modale potentiellement ouverte
+  const providerModal = document.getElementById("providerFormSection");
+  if (providerModal) providerModal.style.display = "none";
+  const itineraryModal = document.getElementById("itineraryModal");
+  if (itineraryModal) itineraryModal.style.display = "none";
+  const importModal = document.getElementById("importModal");
+  if (importModal) importModal.style.display = "none";
+
   const modal = document.getElementById("reportModal");
   if (!modal) return;
   modal.style.display = "flex";
 
-  const form = document.getElementById("reportForm");
-  const get = id => form.querySelector(`[name="${id}"]`) || form.querySelector(`#${id}`);
+  // Ne pas pré-générer l'aperçu pour éviter l'effet "double formulaire"
+  const reportContent = document.getElementById("reportContent");
+  if (reportContent) {
+    reportContent.innerHTML = "";
+    reportContent.style.display = "none";
+  }
+
+  populateTechnicianSuggestions();
+}"]`) || form.querySelector(`#${id}`);
 
   const values = {
     ticket: get("ticket")?.value || "",
@@ -1027,6 +1042,9 @@ function populateTechnicianSuggestions() {
 
 // ----------------- Menu / init + Backfill coords -----------------
 document.addEventListener("DOMContentLoaded", async () => {
+  // Sécurité: garder le titre centré
+  const h1 = document.querySelector('header h1');
+  if (h1) { h1.style.margin = '0 auto'; h1.style.textAlign = 'center'; }
   // Forçage position burger en haut à droite (au cas où le CSS n'est pas chargé)
   const headerEl = document.querySelector('header');
   const burger = document.getElementById("burgerMenu");
