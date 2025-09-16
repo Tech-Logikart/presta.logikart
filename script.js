@@ -1,4 +1,13 @@
-// ======================= LOGIKART / script.js =======================
+# Write a clean, restored version of script.js based on the user's original (from earlier),
+# with minimal, safe fixes:
+#  - Keep all functionality.
+#  - Do NOT override header/burger positioning in DOMContentLoaded (fixes title centering).
+#  - Do NOT auto-render #reportContent inside openReportForm (prevents "double form").
+#  - Keep the robust generatePDF implementation from the original.
+
+from pathlib import Path
+
+script = r"""// ======================= LOGIKART / script.js =======================
 // Carte Leaflet — vue Europe par défaut
 const map = L.map('map').setView([54, 15], 4);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -652,7 +661,7 @@ function parseCSVToObjects(text) {
   }
 
   const headersRaw = parseLine(lines[0]).map(h => h.trim());
-  const normalizeKey = (k) => k.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/\s+/g, "").replace(/[^a-z0-9]/g, "");
+  const normalizeKey = (k) => k.toLowerCase().normalize("NFD").replace(/\\p{Diacritic}/gu, "").replace(/\\s+/g, "").replace(/[^a-z0-9]/g, "");
 
   const headerMap = {};
   headersRaw.forEach((h, i) => {
@@ -812,7 +821,7 @@ function exportItineraryToPDF() {
       <p><strong>Départ :</strong> ${start}</p>
       ${extras.map((dest, i) => `<p><strong>Étape ${i + 1} :</strong> ${dest}</p>`).join("")}
       <p><strong>Arrivée :</strong> ${end}</p>
-      <p style="margin-top:10px;">${distanceText.replace(/\n/g, "<br>")}</p>
+      <p style="margin-top:10px;">${distanceText.replace(/\\n/g, "<br>")}</p>
       <hr>
       <p><strong>Carte de l’itinéraire :</strong></p>
       <img src="${mapImage}" style="width:100%; max-height:500px; margin-top:10px;" />
@@ -882,33 +891,11 @@ function openReportForm() {
   if (!modal) return;
   modal.style.display = "flex";
 
-  // Ne pas pré-remplir/afficher l'aperçu pour éviter l'effet "deux formulaires"
+  // Ne pas pré-générer l'aperçu pour éviter l'effet "double formulaire"
   const reportContent = document.getElementById("reportContent");
   if (reportContent) {
     reportContent.innerHTML = "";
     reportContent.style.display = "none";
-  }
-
-  populateTechnicianSuggestions();
-}"]`) || form.querySelector(`#${id}`);
-
-  const values = {
-    ticket: get("ticket")?.value || "",
-    date: get("interventionDate")?.value || "",
-    site: get("siteAddress")?.value || "",
-    tech: get("technician")?.value || "",
-    todo: get("todo")?.value || "",
-    done: get("done")?.value || "",
-    start: get("start")?.value || "",
-    end: get("end")?.value || "",
-    signTech: get("signTech")?.value || "",
-    signClient: get("signClient")?.value || ""
-  };
-
-  const reportContent = document.getElementById("reportContent");
-  if (reportContent) {
-    reportContent.innerHTML = buildReportHTML(values);
-    reportContent.style.display = "block";
   }
 
   populateTechnicianSuggestions();
@@ -965,16 +952,16 @@ function generatePDF() {
   const form = document.getElementById("reportForm");
   const get = id => form.querySelector(`[name="${id}"]`) || form.querySelector(`#${id}`);
   const values = {
-    ticket: get("ticket")?.value || "",
-    date: get("interventionDate")?.value || "",
-    site: get("siteAddress")?.value || "",
-    tech: get("technician")?.value || "",
-    todo: get("todo")?.value || "",
-    done: get("done")?.value || "",
-    start: get("start")?.value || "",
-    end: get("end")?.value || "",
-    signTech: get("signTech")?.value || "",
-    signClient: get("signClient")?.value || ""
+    ticket: get("ticket")?.value,
+    date: get("interventionDate")?.value,
+    site: get("siteAddress")?.value,
+    tech: get("technician")?.value,
+    todo: get("todo")?.value,
+    done: get("done")?.value,
+    start: get("start")?.value,
+    end: get("end")?.value,
+    signTech: get("signTech")?.value,
+    signClient: get("signClient")?.value
   };
 
   // Si html2pdf n’est pas présent → fallback impression
@@ -983,41 +970,6 @@ function generatePDF() {
     printReport();
     return;
   }
-
-  // conteneur visible (offscreen) pour html2canvas/html2pdf
-  const temp = document.createElement("div");
-  temp.style.position = "fixed";
-  temp.style.left = "-10000px"; // hors écran mais rendu
-  temp.style.top = "0";
-  temp.style.width = "794px";   // ~ A4 @96dpi
-  temp.style.background = "#fff";
-  temp.innerHTML = buildReportHTML(values);
-  document.body.appendChild(temp);
-
-  // attendre les images (logo) avant rendu
-  const imgs = Array.from(temp.querySelectorAll("img"));
-  const waitImgs = Promise.all(imgs.map(img => img.complete ? Promise.resolve() :
-    new Promise(res => img.onload = img.onerror = res)
-  ));
-
-  waitImgs.then(() => {
-    html2pdf().set({
-      margin: 0.5,
-      filename: 'rapport_intervention_LOGIKART.pdf',
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, allowTaint: true },
-      jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
-    }).from(temp).save()
-      .then(() => {
-        temp.remove();
-      })
-      .catch(err => {
-        console.error("[PDF] erreur", err);
-        temp.remove();
-        printReport(); // fallback impression si canvas/images bloqués
-      });
-  });
-}
 
   // conteneur visible (offscreen) pour html2canvas/html2pdf
   const temp = document.createElement("div");
@@ -1078,7 +1030,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Backfill asynchrone des fiches sans coords (une seule fois)
   backfillMissingCoords(); // best effort, non bloquant
 
-  // Toggle menu (ne pas écraser le CSS; #burgerMenu est déjà en position: fixed dans index.html)
+  // Toggle menu (on ne touche pas au placement CSS du burger/header ici)
   const burger = document.getElementById("burgerMenu");
   const dropdown = document.getElementById("menuDropdown");
   burger?.addEventListener("click", (e) => {
@@ -1086,8 +1038,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!dropdown) return;
     dropdown.style.display = (dropdown.style.display === "none" || !dropdown.style.display) ? "block" : "none";
   });
-  document.addEventListener("click", () => { if (dropdown) dropdown.style.display = "none"; });
-});
   document.addEventListener("click", () => { if (dropdown) dropdown.style.display = "none"; });
 });
 
@@ -1145,3 +1095,7 @@ window.handleImport = handleImport;
 //   tech-logikart.github.io   (et localhost si besoin)
 // Active "Anonymous" et publie les "Rules" Firestore.
 // --------------------------------------------------------------------
+"""
+
+Path('/mnt/data/script.js').write_text(script, encoding='utf-8')
+print("Restored and fixed /mnt/data/script.js")
