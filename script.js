@@ -898,10 +898,11 @@ function openReportForm() {
     signClient: get("signClient")?.value || ""
   };
 
-  const reportContent = document.getElementById("reportContent");
+  const reportContent = document.getElementById(\"reportContent\");
   if (reportContent) {
-    reportContent.innerHTML = buildReportHTML(values);
-    reportContent.style.display = "block";
+    // Ne pas afficher d'aperçu dans le modal pour éviter l'effet \"deux formulaires\"
+    reportContent.innerHTML = \"\";
+    reportContent.style.display = \"none\";
   }
 
   populateTechnicianSuggestions();
@@ -1031,7 +1032,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const headerEl = document.querySelector('header');
   const burger = document.getElementById("burgerMenu");
   const dropdown = document.getElementById("menuDropdown");
-  if (headerEl) headerEl.style.position = 'relative';
+  /* header stays sticky by CSS; no forced relative positioning here to keep perfect centering */
   if (burger) {
     burger.style.position = 'absolute';
     burger.style.top = '12px';
