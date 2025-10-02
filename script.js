@@ -652,7 +652,7 @@ function parseCSVToObjects(text) {
   }
 
   const headersRaw = parseLine(lines[0]).map(h => h.trim());
-  const normalizeKey = (k) => k.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "").replace(/[^a-z0-9]/g, "");
+  const normalizeKey = (k) => k.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/\s+/g, "").replace(/[^a-z0-9]/g, "");
 
   const headerMap = {};
   headersRaw.forEach((h, i) => {
@@ -812,7 +812,7 @@ function exportItineraryToPDF() {
       <p><strong>Départ :</strong> ${start}</p>
       ${extras.map((dest, i) => `<p><strong>Étape ${i + 1} :</strong> ${dest}</p>`).join("")}
       <p><strong>Arrivée :</strong> ${end}</p>
-      <p style="margin-top:10px;">${distanceText.replace(/\\n/g, "<br>")}</p>
+      <p style="margin-top:10px;">${distanceText.replace(/\n/g, "<br>")}</p>
       <hr>
       <p><strong>Carte de l’itinéraire :</strong></p>
       <img src="${mapImage}" style="width:100%; max-height:500px; margin-top:10px;" />
@@ -881,14 +881,8 @@ function openReportForm() {
   const modal = document.getElementById("reportModal");
   if (!modal) return;
   modal.style.display = "flex";
-
-  // Ne pas pré-générer l'aperçu pour éviter l'effet "double formulaire"
   const reportContent = document.getElementById("reportContent");
-  if (reportContent) {
-    reportContent.innerHTML = "";
-    reportContent.style.display = "none";
-  }
-
+  if (reportContent) { reportContent.innerHTML = ""; reportContent.style.display = "none"; }
   populateTechnicianSuggestions();
 }
 function closeReportForm() { const modal = document.getElementById("reportModal"); if (modal) modal.style.display = "none"; }
@@ -1016,8 +1010,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   const headerEl = document.querySelector('header');
   const burger = document.getElementById("burgerMenu");
   const dropdown = document.getElementById("menuDropdown");
-  // (supprimé) pas d'override du header pour garder le titre centré
-  // (supprimé) pas d'override inline du burger; CSS gère déjà la position
+  if (headerEl) headerEl.style.position = 'relative';
+  if (burger) {
+    burger.style.position = 'absolute';
+    burger.style.top = '12px';
+    burger.style.right = '12px';
+  }
 
   // Affichage immédiat depuis le local (en lots)
   loadProvidersFromLocalStorage();
