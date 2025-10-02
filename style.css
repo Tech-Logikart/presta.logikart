@@ -123,3 +123,19 @@ input, textarea, select {
   background: var(--accent);
   color: var(--primary-dark);
 }
+
+/* === Header centering fix === */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: center; /* center the H1 */
+  gap: 12px;
+  padding: 12px 16px;
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 999;
+  border-bottom: 1px solid #eee;
+}
+header h1 { margin: 0; text-align: center; }
+header img { display: block; }
