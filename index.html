@@ -65,10 +65,11 @@
 
 <body>
   <!-- En-tête (logo + titre) -->
-  <header>
-    <img src="logikart-logo.png" alt="LOGIKART" style="height:60px;" />
-    <h1 style="margin:0;">LOGIKART - Réseau de prestataires informatiques</h1>
-  </header>
+ <header>
+  <img src="logikart-logo.png" alt="LOGIKART" style="height:40px; justify-self:start;" />
+  <h1 id="pageTitle">LOGIKART - Réseau de prestataires informatiques</h1>
+  <button id="burgerMenu" aria-label="menu">☰</button>
+</header>
 
   <!-- Burger (en dehors du header pour éviter les stacking contexts) -->
   <div id="burgerMenu" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false" aria-controls="menuDropdown">☰</div>
