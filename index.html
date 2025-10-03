@@ -3,182 +3,261 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>LOGIKART</title>
+  <title>Carte des Prestataires</title>
+
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="logikart-logo.png" />
 
   <!-- Leaflet CSS -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-    crossorigin=""
-  />
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <!-- (Optionnel) MarkerCluster CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+
+  <!-- Patchs pour un burger toujours cliquable -->
+  <style>
+    /* Header visuel (logo + titre) */
+    header {
+      position: sticky; top: 0; z-index: 3000;
+      background: #004080; color: #fff;
+      padding: 20px 12px 12px;
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      text-align: center;
+    }
+
+    /* Burger fixé au-dessus de tout (même la carte) */
+    #burgerMenu{
+      position: fixed !important; top:12px !important; right:12px !important;
+      user-select:none; cursor:pointer; font-size:20px;
+      background:#fff; color:#000; border:1px solid #eee; border-radius:8px;
+      padding:6px 10px; line-height:1; z-index: 99999 !important;
+      box-shadow:0 6px 20px rgba(0,0,0,.08);
+    }
+    #menuDropdown{
+      position: fixed !important; top:56px !important; right:12px !important;
+      display:none; z-index: 99998 !important;
+      background:#fff; border:1px solid #eee; border-radius:8px;
+      padding:6px 0; min-width:240px; box-shadow:0 6px 20px rgba(0,0,0,.12);
+    }
+    #menuDropdown ul{ list-style:none; margin:0; padding:0; }
+    #menuDropdown li{ padding:10px 14px; cursor:pointer; }
+    #menuDropdown li:hover{ background:#f6f6f6; }
+    #menuDropdown li.divider{ border-top:1px solid #eee; margin:6px 0 0 0; padding:0; }
+
+    body, html { height:100%; }
+    #map { width:100%; height:80vh; }
+
+    /* Modals génériques */
+    .modal, .modal-overlay {
+      display:none; position:fixed; inset:0; background:rgba(0,0,0,.4);
+      align-items:center; justify-content:center; z-index:2000;
+    }
+    .modal-content{
+      background:#fff; padding:16px; border-radius:12px;
+      max-width:720px; width:min(92vw,720px); max-height:85vh; overflow:auto;
+    }
+    .form-buttons{ display:flex; gap:8px; flex-wrap:wrap; }
+  
+    /* Centrage du titre et prévention des décalages */
+    header h1 { margin: 0 auto; text-align: center; max-width: 100%; }
+    </style>
 </head>
+
 <body>
+  <!-- En-tête (logo + titre) -->
   <header>
-    <img src="logikart-logo.png" alt="LOGIKART" class="logo"/>
-    <h1 id="pageTitle">LOGIKART - Réseau de prestataires informatiques</h1>
-    <button id="burgerMenu" aria-label="menu">☰</button>
+    <img src="logikart-logo.png" alt="LOGIKART" style="height:60px;" />
+    <h1 style="margin:0;">LOGIKART - Réseau de prestataires informatiques</h1>
   </header>
 
-  <main>
-    <!-- Barre d’actions -->
-    <section id="actions" class="actions">
-      <div class="actions-row">
-        <div class="actions-left">
-          <button onclick="openProviderForm()">Ajouter un prestataire</button>
-          <button onclick="openImportModal()">Importer</button>
-          <button onclick="exportProviders('json')">Exporter JSON</button>
-          <button onclick="exportProviders('csv')">Exporter CSV</button>
-        </div>
-        <div class="actions-right">
-          <input id="cityInput" type="text" placeholder="Ville pour recherche de proximité"/>
-          <button onclick="searchNearest()">Rechercher le plus proche</button>
-          <button onclick="openItineraryTool()">Calculer un itinéraire</button>
-          <button onclick="openReportForm()">Imprimer rapport d’intervention</button>
-        </div>
-      </div>
-    </section>
+  <!-- Burger (en dehors du header pour éviter les stacking contexts) -->
+  <div id="burgerMenu" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false" aria-controls="menuDropdown">☰</div>
+  <div id="menuDropdown">
+    <ul>
+      <li onclick="toggleProviderList()">📋 Prestataires</li>
+      <li onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
+      <li onclick="openReportForm()">📝 Imprimer rapport d’intervention</li>
+      <li class="divider"></li>
+      <li onclick="exportProviders('json')">⬇️ Exporter (JSON)</li>
+      <li onclick="exportProviders('csv')">⬇️ Exporter (CSV)</li>
+      <li onclick="openImportModal()">⬆️ Importer</li>
+    </ul>
+  </div>
 
-    <!-- Layout: liste + carte -->
-    <section class="layout">
-      <aside class="list-panel">
-        <h2>Prestataires</h2>
-        <div id="providerList" class="provider-list"></div>
-      </aside>
-      <section class="map-panel">
-        <div id="map"></div>
-      </section>
-    </section>
-  </main>
+  <!-- Barre d’action -->
+  <section style="padding:10px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+    <input type="text" id="cityInput" placeholder="Ville" style="width:260px; padding:8px; border:1px solid #ccc; border-radius:6px;" />
+    <button onclick="searchNearest()">Rechercher</button>
+    <button onclick="addProvider()">Ajouter un prestataire</button>
+  </section>
 
-  <!-- Modal : Formulaire prestataire -->
-  <div id="providerFormSection" class="modal">
+  <!-- Carte -->
+  <div id="map"></div>
+
+  <!-- Liste des prestataires -->
+  <aside id="providerList"></aside>
+
+  <!-- ===== Modal Prestataire ===== -->
+  <div id="providerFormSection" class="modal-overlay">
     <div class="modal-content">
-      <span class="close" onclick="hideForm()">&times;</span>
-      <h3>Ajouter / Modifier un prestataire</h3>
       <form id="providerForm">
-        <label>Raison sociale
-          <input id="companyName" type="text" required />
-        </label>
-        <label>Nom
-          <input id="contactName" type="text" />
-        </label>
-        <label>Prénom
-          <input id="firstName" type="text" />
-        </label>
-        <label>Adresse
-          <input id="address" type="text" required/>
-        </label>
-        <label>Email
-          <input id="email" type="email" />
-        </label>
-        <label>Téléphone
-          <input id="phone" type="text" />
-        </label>
-        <label>Tarif horaire HT (€)
-          <input id="rate" type="number" step="0.01" />
-        </label>
-        <label>Frais déplacement HT (€)
-          <input id="travelFees" type="number" step="0.01" />
-        </label>
-        <label>Total HT (automatique si vide)
-          <input id="totalCost" type="text" />
-        </label>
-
-        <div class="form-actions">
+        <h2>Ajouter un prestataire</h2>
+        <input type="text" id="companyName" placeholder="RAISON SOCIALE" required />
+        <input type="text" id="contactName" placeholder="NOM" required />
+        <input type="text" id="firstName" placeholder="PRÉNOM" />
+        <input type="text" id="address" placeholder="ADRESSE POSTALE" required />
+        <input type="email" id="email" placeholder="ADRESSE EMAIL" />
+        <input type="tel" id="phone" placeholder="N° DE TÉLÉPHONE" />
+        <input type="number" id="rate" placeholder="Tarif heure HT (€)" step="0.01" />
+        <input type="number" id="travelFees" placeholder="Frais de déplacement HT (€)" step="0.01" />
+        <input type="text" id="totalCost" placeholder="Tarif total HT (€)" readonly />
+        <div class="form-buttons">
           <button type="submit">Enregistrer</button>
           <button type="button" onclick="hideForm()">Annuler</button>
         </div>
       </form>
+      <script>
+        // Calcul auto du total HT
+        const rateInput = document.getElementById("rate");
+        const travelInput = document.getElementById("travelFees");
+        const totalInput = document.getElementById("totalCost");
+        function updateTotal(){ const r=parseFloat(rateInput.value)||0, t=parseFloat(travelInput.value)||0; totalInput.value=(r+t).toFixed(2)+' €'; }
+        rateInput.addEventListener("input", updateTotal);
+        travelInput.addEventListener("input", updateTotal);
+      </script>
     </div>
   </div>
 
-  <!-- Modal : Import -->
+  <!-- ===== Modal Rapport d’intervention ===== -->
+  <div id="reportModal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="closeReportForm()">×</span>
+      <form id="reportForm">
+        <img src="logikart-logo.png" alt="LOGIKART" class="logo" style="height:60px;" />
+        <h2>Rapport d’intervention LOGIKART</h2>
+        <label>Numéro de ticket :</label>
+        <input type="text" name="ticket" required />
+        <label>Date d’intervention :</label>
+        <input type="date" name="interventionDate" required />
+        <label>Adresse du site :</label>
+        <input type="text" name="siteAddress" required />
+        <label>Nom du technicien :</label>
+        <input type="text" name="technician" list="technicianList" required />
+        <datalist id="technicianList"></datalist>
+        <label>Travail à faire :</label>
+        <textarea name="todo" rows="6" required></textarea>
+        <label>Travail effectué :</label>
+        <textarea name="done" rows="10" required></textarea>
+        <label>Heure d’arrivée :</label>
+        <input type="time" name="start" required />
+        <label>Heure de départ :</label>
+        <input type="time" name="end" required />
+        <label>Signature du technicien :</label>
+        <input type="text" name="signTech" />
+        <label>Signature du client :</label>
+        <input type="text" name="signClient" />
+        <div class="form-buttons">
+          <button type="button" onclick="printReport()">🖨️ Imprimer</button>
+          <button type="button" onclick="generatePDF()">📄 Générer PDF</button>
+          <button type="button" onclick="closeReportForm()">❌ Fermer</button>
+        </div>
+      </form>
+      <div id="reportContent" style="display:none;"></div>
+    </div>
+  </div>
+
+  <!-- ===== Modal Itinéraire ===== -->
+  <div id="itineraryModal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="closeItineraryModal()">×</span>
+      <h2>🧭 Calcul d'itinéraire</h2>
+      <form id="itineraryForm">
+        <label>Adresse de départ :</label>
+        <input type="text" id="startAddress" required />
+        <div id="extraDestinations"></div>
+        <button type="button" onclick="addDestinationField()">➕ Ajouter une étape</button>
+        <label>Adresse de destination :</label>
+        <input type="text" id="endAddress" required />
+        <div class="form-buttons">
+          <button type="button" onclick="calculateRoute()">🚗 Calculer l’itinéraire</button>
+          <button id="exportPdfBtn" type="button" onclick="exportItineraryToPDF()" style="display:none;">📄 Exporter en PDF</button>
+        </div>
+      </form>
+      <div id="routeResult" style="margin-top:15px;"></div>
+    </div>
+  </div>
+
+  <!-- ===== Modal Import ===== -->
   <div id="importModal" class="modal">
     <div class="modal-content">
-      <span class="close" onclick="closeImportModal()">&times;</span>
-      <h3>Importer des prestataires</h3>
-      <p>Fichier JSON ou CSV (avec en-têtes).</p>
-      <input id="importFile" type="file" accept=".json,.csv" />
-      <label style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+      <span class="close" onclick="closeImportModal()">×</span>
+      <h2>↕️ Importer des prestataires</h2>
+      <p>Fichiers acceptés : <strong>JSON</strong> ou <strong>CSV</strong> (entêtes FR/EN reconnus).</p>
+      <input type="file" id="importFile" accept=".json,.csv" />
+      <label style="display:block; margin-top:8px;">
         <input type="checkbox" id="skipDuplicates" checked />
-        Ignorer doublons (même email+phone)
+        Ignorer les doublons (même email + téléphone)
       </label>
-      <div class="form-actions">
+      <div class="form-buttons" style="margin-top:12px;">
         <button type="button" onclick="handleImport()">Importer</button>
-        <button type="button" onclick="closeImportModal()">Fermer</button>
+        <button type="button" onclick="closeImportModal()">Annuler</button>
       </div>
     </div>
   </div>
 
-  <!-- Modal : Itinéraire -->
-  <div id="itineraryModal" class="modal">
-    <div class="modal-content">
-      <span class="close" onclick="closeItineraryModal()">&times;</span>
-      <h2>Calcul d'itinéraire</h2>
-      <form id="itineraryForm" onsubmit="event.preventDefault(); calculateRoute();">
-        <label>Départ
-          <input type="text" id="startAddress" placeholder="Adresse de départ" />
-        </label>
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 
-        <div id="extraDestinations"></div>
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <!-- (Optionnel) MarkerCluster JS -->
+  <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
 
-        <label>Arrivée
-          <input type="text" id="endAddress" placeholder="Adresse d'arrivée" />
-        </label>
+  <!-- Initialisation Firebase + Auth anonyme -->
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyA59iB-7skqRFngoF24VkAHZMBSIonh7Ho",
+      authDomain: "lgk-presta.firebaseapp.com",
+      projectId: "lgk-presta",
+      storageBucket: "lgk-presta.firebasestorage.app",
+      messagingSenderId: "386610630784",
+      appId: "1:386610630784:web:015bb6c04156918d369665"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+    // Exposé pour script.js
+    window.db = db;
 
-        <div class="itinerary-actions">
-          <button type="button" onclick="addDestinationField()">Ajouter une étape</button>
-          <button type="submit">Calculer l'itinéraire</button>
-          <button type="button" id="exportPdfBtn" style="display:none" onclick="exportItineraryToPDF()">Exporter en PDF</button>
-        </div>
+    // Promise d’auth anonyme utilisée par script.js
+    window.authReady = (async () => {
+      try {
+        if (auth.setPersistence) {
+          await auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
+        }
+      } catch (e) {
+        console.warn("[Auth] setPersistence:", e?.message || e);
+      }
+      try {
+        await auth.signInAnonymously();
+        console.log("[Auth] Connecté anonymement");
+      } catch (e) {
+        console.warn("[Auth] Echec connexion anonyme:", e);
+      }
+    })();
+  </script>
 
-        <div id="routeResult"></div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Modal : Rapport d’intervention -->
-  <div id="reportModal" class="modal">
-    <div class="modal-content">
-      <span class="close" onclick="closeReportForm()">&times;</span>
-      <h2>Rapport d’intervention</h2>
-      <form id="reportForm">
-        <label>N° Ticket <input type="text" name="ticket"></label>
-        <label>Date <input type="date" name="interventionDate"></label>
-        <label>Adresse du site <input type="text" name="siteAddress"></label>
-        <label>Technicien <input list="technicianList" type="text" name="technician"></label>
-        <datalist id="technicianList"></datalist>
-        <label>Travaux à réaliser <textarea name="todo"></textarea></label>
-        <label>Travaux réalisés <textarea name="done"></textarea></label>
-        <div class="two">
-          <label>Heure de début <input type="time" name="start"></label>
-          <label>Heure de fin <input type="time" name="end"></label>
-        </div>
-        <div class="two">
-          <label>Signature technicien <input type="text" name="signTech"></label>
-          <label>Signature client <input type="text" name="signClient"></label>
-        </div>
-        <div class="report-actions">
-          <button type="button" onclick="printReport()">Imprimer</button>
-          <button type="button" onclick="generatePDF()">Générer PDF</button>
-        </div>
-      </form>
-      <div id="reportContent"></div>
-    </div>
-  </div>
-
-  <!-- Leaflet JS & Leaflet Image (pour export itinéraire si besoin) -->
-  <script
-    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-    crossorigin=""></script>
+  <!-- PDF & rendu de carte (pour itinéraire PDF) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
 
-  <!-- html2pdf (optionnel; on n’en dépend plus pour le PDF du rapport) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.9.2/html2pdf.bundle.min.js" defer></script>
-
+  <!-- Script principal -->
   <script src="script.js"></script>
+
+  <!-- Gestion du burger (clic + clavier + fermeture extérieure) -->
+  
 </body>
 </html>
