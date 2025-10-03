@@ -937,59 +937,52 @@ function generatePDF() {
   const form = document.getElementById("reportForm");
   const get = id => form.querySelector(`[name="${id}"]`) || form.querySelector(`#${id}`);
   const values = {
-    ticket: get("ticket")?.value,
-    date: get("interventionDate")?.value,
-    site: get("siteAddress")?.value,
-    tech: get("technician")?.value,
-    todo: get("todo")?.value,
-    done: get("done")?.value,
-    start: get("start")?.value,
-    end: get("end")?.value,
-    signTech: get("signTech")?.value,
-    signClient: get("signClient")?.value
+    ticket: get("ticket")?.value || "",
+    date: get("interventionDate")?.value || "",
+    site: get("siteAddress")?.value || "",
+    tech: get("technician")?.value || "",
+    todo: get("todo")?.value || "",
+    done: get("done")?.value || "",
+    start: get("start")?.value || "",
+    end: get("end")?.value || "",
+    signTech: get("signTech")?.value || "",
+    signClient: get("signClient")?.value || ""
   };
 
-  // Si html2pdf n’est pas présent → fallback impression
-  if (typeof html2pdf === "undefined") {
-    console.warn("[PDF] html2pdf non trouvé, fallback impression");
-    printReport();
-    return;
-  }
+  const html = buildReportHTML(values);
+  const w = window.open("", "_blank");
+  w.document.open();
+  w.document.write(`
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Rapport d’intervention</title>
+        <style>
+          @page { size: A4; margin: 12mm; }
+          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; font-family: Arial, sans-serif; }
+          h2 { margin: 0; color: #004080; }
+          img { max-width: 100%; }
+        </style>
+      </head>
+      <body>${html}</body>
+    </html>
+  `);
+  w.document.close();
 
-  // conteneur visible (offscreen) pour html2canvas/html2pdf
-  const temp = document.createElement("div");
-  temp.style.position = "fixed";
-  temp.style.left = "-10000px"; // hors écran mais rendu
-  temp.style.top = "0";
-  temp.style.width = "794px";   // ~ A4 @96dpi
-  temp.style.background = "#fff";
-  temp.innerHTML = buildReportHTML(values);
-  document.body.appendChild(temp);
+  // Attendre le chargement complet (logo etc.) avant d’imprimer
+  const waitImgs = () => {
+    const imgs = Array.from(w.document.images);
+    return Promise.all(imgs.map(img => img.complete ? Promise.resolve() :
+      new Promise(res => { img.onload = img.onerror = res; })
+    ));
+  };
 
-  // attendre les images (logo) avant rendu
-  const imgs = Array.from(temp.querySelectorAll("img"));
-  const waitImgs = Promise.all(imgs.map(img => img.complete ? Promise.resolve() :
-    new Promise(res => img.onload = img.onerror = res)
-  ));
-
-  waitImgs.then(() => {
-    html2pdf().set({
-      margin: 0.5,
-      filename: 'rapport_intervention_LOGIKART.pdf',
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, allowTaint: true },
-      jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
-    }).from(temp).save()
-      .then(() => {
-        temp.remove();
-        // form.reset(); closeReportForm(); // optionnel
-      })
-      .catch(err => {
-        console.error("[PDF] erreur", err);
-        temp.remove();
-        printReport(); // fallback impression si canvas/images bloqués
-      });
-  });
+  w.addEventListener("load", async () => {
+    await waitImgs();
+    w.focus();
+    w.print(); // l’utilisateur choisit "Enregistrer au format PDF"
+    // w.close(); // décommente si tu veux fermer l’onglet automatiquement
+  }, { once: true });
 }
 
 function populateTechnicianSuggestions() {
