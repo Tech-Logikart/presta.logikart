@@ -20,8 +20,6 @@ header {
   padding: 20px;
   text-align: center;
   box-shadow: var(--box-shadow);
-  position: relative;
-  z-index: 10;
 }
 
 h1 {
@@ -99,7 +97,7 @@ button:hover {
   display: none;
   justify-content: center;
   align-items: center;
-  z-index: 5000;
+  z-index: 1001;
 }
 
 .modal-content {
@@ -175,7 +173,7 @@ button:hover {
 .modal-overlay {
   display: none;
   position: fixed;
-  z-index: 5000;
+  z-index: 1001;
   left: 0;
   top: 0;
   width: 100%;
@@ -185,15 +183,25 @@ button:hover {
   align-items: center;
 }
 
-/* Empêche le contenu du formulaire d'être "mangé" par le bandeau bleu sur petits écrans */
-.modal-content {
-  margin: 20px;
-  max-height: calc(100vh - 40px);
+/* ===== Correctifs UX (override) =====
+   - Évite que le header masque le haut des formulaires
+   - Met les modales au-dessus de tout
+*/
+.modal, .modal-overlay {
+  z-index: 9999;
+  align-items: flex-start;
+  padding-top: 110px; /* hauteur du bandeau */
+  box-sizing: border-box;
 }
 
-/* Petites améliorations lisibilité titre */
-header h1 { margin: 0; }
-header .subtitle { margin: 6px 0 0 0; font-size: 14px; opacity: .9; }
+.modal-content {
+  margin-top: 0 !important;
+}
+
+/* La carte doit rester visible même si d'autres blocs s'ajoutent */
+#map {
+  min-height: 70vh;
+}
 
 #menuDropdown {
   position: absolute;
