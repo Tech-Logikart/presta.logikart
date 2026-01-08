@@ -1,125 +1,218 @@
 :root {
-  --primary: #1976d2;
+  --primary: #2e61b9;
   --primary-dark: #004080;
-  --accent: #e3f2fd;
+  --accent: #f0f4ff;
+  --bg: #f9f9f9;
   --text: #333;
-  --border-radius: 8px;
-  --box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  --border-radius: 10px;
+  --box-shadow: 0 4px 8px rgba(0,0,0,0.1);
 }
-
 body {
-  font-family: Arial, sans-serif;
   margin: 0;
-  padding: 0;
-  background: #f9f9f9;
+  font-family: 'Inter', 'Segoe UI', sans-serif;
+  background-color: var(--bg);
   color: var(--text);
 }
 
-h1, h2, h3 {
+header {
+  background-color: var(--primary-dark);
+  color: white;
+  padding: 20px;
+  text-align: center;
+  box-shadow: var(--box-shadow);
+  position: relative;
+  z-index: 10;
+}
+
+h1 {
+  font-size: 24px;
   margin: 0;
-  color: var(--primary-dark);
+}
+
+#burgerMenu {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  font-size: 26px;
+  color: white;
+  cursor: pointer;
+  z-index: 2000;
+}
+
+#menuDropdown {
+  position: absolute;
+  top: 50px;
+  right: 20px;
+  background: white;
+  border-radius: var(--border-radius);
+  box-shadow: var(--box-shadow);
+  overflow: hidden;
+  z-index: 2001;
+}
+
+#menuDropdown ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#menuDropdown ul li {
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+#menuDropdown ul li:hover {
+  background: var(--accent);
+}
+
+input, textarea, select {
+  width: 100%;
+  padding: 12px;
+  margin: 8px 0;
+  border: 1px solid #ccc;
+  border-radius: var(--border-radius);
+  box-sizing: border-box;
+  font-size: 1rem;
 }
 
 button {
-  background: var(--primary);
+  background-color: var(--primary);
   color: white;
   border: none;
+  padding: 10px 20px;
   border-radius: var(--border-radius);
-  padding: 10px 16px;
+  font-size: 1rem;
   cursor: pointer;
   transition: background 0.3s ease;
 }
 
 button:hover {
-  background: var(--primary-dark);
+  background-color: var(--primary-dark);
 }
 
-input, textarea, select {
-  border: 1px solid #ccc;
-  border-radius: var(--border-radius);
-  padding: 8px;
-  width: 100%;
-  box-sizing: border-box;
-  margin-bottom: 10px;
+.modal {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: rgba(0, 0, 0, 0.4);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 5000;
 }
 
 .modal-content {
   background: white;
-  padding: 20px;
+  padding: 30px;
+  width: 90%;
+  max-width: 600px;
   border-radius: var(--border-radius);
   box-shadow: var(--box-shadow);
-  max-width: 600px;
-  width: 100%;
+  overflow-y: auto;
+  max-height: 90vh;
+}
+
+.modal-content h2 {
+  margin-top: 0;
+  text-align: center;
+  color: var(--primary-dark);
 }
 
 .close {
-  float: right;
-  font-size: 20px;
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  font-size: 24px;
   cursor: pointer;
+}
+
+#map {
+  height: 80vh;
+  width: 100%;
+  margin-top: 10px;
+  border-top: 1px solid #ddd;
 }
 
 #providerList {
-  position: fixed;
-  top: 56px;
-  right: 12px;
-  width: 360px;
-  max-height: 70vh;
-  overflow: auto;
-  z-index: 99990;
-  background: white;
-  border: 1px solid #ccc;
-  border-radius: var(--border-radius);
-  margin: 0;
+  position: absolute;
+  right: 0;
+  top: 150px;
+  width: 320px;
+  max-height: 80vh;
+  overflow-y: auto;
+  background-color: white;
+  border-left: 1px solid #ccc;
   padding: 12px;
   box-shadow: var(--box-shadow);
-  display: none; /* cachée par défaut, affichée via le menu */
+  z-index: 900;
 }
 
 .provider-entry {
-  margin-bottom: 12px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #eee;
-}
-
-#reportContent {
-  margin-top: 20px;
+  background-color: #fff;
   border: 1px solid #ddd;
   padding: 12px;
   border-radius: var(--border-radius);
-}
-
-/* ===== Harmonisation menu burger ===== */
-#burgerMenu {
-  background: var(--primary-dark);
-  color: #fff;
-  border: 1px solid #00285a;
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 22px;
+  margin-bottom: 12px;
   box-shadow: var(--box-shadow);
-  transition: background 0.3s ease;
 }
 
-#burgerMenu:hover {
-  background: var(--primary);
+.form-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
+
+.hidden {
+  display: none;
+}
+
+.pdf-logo {
+  height: 50px;
+  margin-bottom: 10px;
+}
+
+.modal-overlay {
+  display: none;
+  position: fixed;
+  z-index: 5000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0,0,0,0.5);
+  justify-content: center;
+  align-items: center;
+}
+
+/* Empêche le contenu du formulaire d'être "mangé" par le bandeau bleu sur petits écrans */
+.modal-content {
+  margin: 20px;
+  max-height: calc(100vh - 40px);
+}
+
+/* Petites améliorations lisibilité titre */
+header h1 { margin: 0; }
+header .subtitle { margin: 6px 0 0 0; font-size: 14px; opacity: .9; }
 
 #menuDropdown {
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: var(--border-radius);
-  box-shadow: var(--box-shadow);
-  overflow: hidden;
+  position: absolute;
+  top: 30px;
+  right: 0;
+  background: white;
+  color: #333;
+  border-radius: 6px;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+  padding: 10px;
 }
 
-#menuDropdown ul li {
-  color: var(--text);
-  padding: 12px 16px;
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-#menuDropdown ul li:hover {
-  background: var(--accent);
-  color: var(--primary-dark);
+.modal-content {
+  background: white;
+  padding: 20px 30px;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
 }
