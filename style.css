@@ -224,3 +224,26 @@ button:hover {
   overflow-y: auto;
   position: relative;
 }
+
+
+
+/* ===== UX fix: formulaires toujours accessibles en bas ===== */
+.modal-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-content form {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 4px; /* évite que la scrollbar masque le contenu */
+}
+
+.form-buttons {
+  position: sticky;
+  bottom: 0;
+  background: #fff;
+  padding: 12px 0 0 0;
+  margin-top: 10px;
+  border-top: 1px solid #eee;
+}
