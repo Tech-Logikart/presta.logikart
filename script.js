@@ -18,7 +18,25 @@
     localStorage.setItem('providers', JSON.stringify(providers));
   }
 
-  function escapeHtml(str) {
+  
+  // ---------- Storage helpers ----------
+  function readTechnicians() {
+    return safeJsonParse(localStorage.getItem('technicians'), []);
+  }
+
+  function writeTechnicians(techs) {
+    localStorage.setItem('technicians', JSON.stringify(techs));
+  }
+
+  function readGeocodeCache() {
+    return safeJsonParse(localStorage.getItem('geocodeCache'), {});
+  }
+
+  function writeGeocodeCache(cache) {
+    localStorage.setItem('geocodeCache', JSON.stringify(cache));
+  }
+
+function escapeHtml(str) {
     return String(str ?? '')
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -37,14 +55,35 @@
     markers = [];
   }
 
-  async function geocode(address) {
-    const url = 'https://proxy-logikart.samir-mouheb.workers.dev/?url=' +
-      encodeURIComponent('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + address);
+    const inFlightGeocode = new Map();
 
-    const res = await fetch(url);
-    const data = await res.json();
-    if (!Array.isArray(data) || data.length === 0) return null;
-    return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+  async function geocode(address) {
+    const q = String(address || '').trim();
+    if (!q) return null;
+
+    const key = q.toLowerCase();
+    const cache = readGeocodeCache();
+    if (cache[key]) return cache[key];
+
+    if (inFlightGeocode.has(key)) return inFlightGeocode.get(key);
+
+    const p = (async () => {
+      const url = 'https://proxy-logikart.samir-mouheb.workers.dev/?url=' +
+        encodeURIComponent('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + q);
+
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!Array.isArray(data) || data.length === 0) return null;
+
+      const geo = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+      cache[key] = geo;
+      writeGeocodeCache(cache);
+      return geo;
+    })();
+
+    inFlightGeocode.set(key, p);
+    try { return await p; }
+    finally { inFlightGeocode.delete(key); }
   }
 
   function markerPopup(provider) {
@@ -56,31 +95,71 @@
     );
   }
 
-  async function geocodeAndAddToMap(provider) {
+  function haversineKm(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const toRad = (d) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+
+
+    async function geocodeAndAddToMap(provider) {
     try {
-      if (!map) return;
-      const geo = await geocode(provider.address);
+      if (!map) return null;
+
+      // Utilise les coordonnées déjà connues (affichage instantané)
+      let geo = (provider && typeof provider.lat === 'number' && typeof provider.lon === 'number')
+        ? { lat: provider.lat, lon: provider.lon }
+        : null;
+
+      // Sinon géocode (avec cache) puis mémorise sur le prestataire
       if (!geo) {
-        console.warn('Géocodage introuvable pour:', provider.address);
-        return;
+        geo = await geocode(provider.address);
+        if (!geo) {
+          console.warn('Géocodage introuvable pour:', provider.address);
+          return null;
+        }
+        provider.lat = geo.lat;
+        provider.lon = geo.lon;
       }
+
       const marker = L.marker([geo.lat, geo.lon]).addTo(map).bindPopup(markerPopup(provider));
       markers.push(marker);
+      return geo;
     } catch (e) {
       console.error('Erreur géocodage:', e);
+      return null;
     }
   }
 
-  async function loadProvidersToMap() {
+    async function loadProvidersToMap() {
     clearMarkers();
     const providers = readProviders();
 
-    // géocodage en série légère (évite 429)
-    for (const p of providers) {
-      // eslint-disable-next-line no-await-in-loop
-      await geocodeAndAddToMap(p);
+    // Conserve les coordonnées si on modifie sans changer l'adresse
+    if (editingIndex !== null && providers[editingIndex] && providers[editingIndex].address === provider.address) {
+      provider.lat = providers[editingIndex].lat;
+      provider.lon = providers[editingIndex].lon;
     }
 
+    let changed = false;
+
+    // Géocodage en série légère (évite 429) + cache local (accélère fortement après 1er passage)
+    for (const p of providers) {
+      const hadCoords = (typeof p.lat === 'number' && typeof p.lon === 'number');
+      // eslint-disable-next-line no-await-in-loop
+      await geocodeAndAddToMap(p);
+      if (!hadCoords && typeof p.lat === 'number' && typeof p.lon === 'number') changed = true;
+    }
+
+    if (changed) writeProviders(providers);
     updateProviderList();
   }
 
@@ -105,6 +184,13 @@
     if (!container) return;
 
     const providers = readProviders();
+
+    // Conserve les coordonnées si on modifie sans changer l'adresse
+    if (editingIndex !== null && providers[editingIndex] && providers[editingIndex].address === provider.address) {
+      provider.lat = providers[editingIndex].lat;
+      provider.lon = providers[editingIndex].lon;
+    }
+
     container.innerHTML = '';
 
     providers.forEach((p, i) => {
@@ -127,6 +213,13 @@
 
   function editProvider(index) {
     const providers = readProviders();
+
+    // Conserve les coordonnées si on modifie sans changer l'adresse
+    if (editingIndex !== null && providers[editingIndex] && providers[editingIndex].address === provider.address) {
+      provider.lat = providers[editingIndex].lat;
+      provider.lon = providers[editingIndex].lon;
+    }
+
     const p = providers[index];
     if (!p) return;
 
@@ -146,6 +239,13 @@
 
   function deleteProvider(index) {
     const providers = readProviders();
+
+    // Conserve les coordonnées si on modifie sans changer l'adresse
+    if (editingIndex !== null && providers[editingIndex] && providers[editingIndex].address === provider.address) {
+      provider.lat = providers[editingIndex].lat;
+      provider.lon = providers[editingIndex].lon;
+    }
+
     if (!providers[index]) return;
     if (!confirm('Confirmer la suppression ?')) return;
     providers.splice(index, 1);
@@ -169,6 +269,13 @@
     };
 
     const providers = readProviders();
+
+    // Conserve les coordonnées si on modifie sans changer l'adresse
+    if (editingIndex !== null && providers[editingIndex] && providers[editingIndex].address === provider.address) {
+      provider.lat = providers[editingIndex].lat;
+      provider.lon = providers[editingIndex].lon;
+    }
+
     if (editingIndex !== null) providers[editingIndex] = provider;
     else providers.push(provider);
     writeProviders(providers);
@@ -178,7 +285,7 @@
   }
 
   // ---------- Search nearest ----------
-  async function searchNearest() {
+    async function searchNearest() {
     const city = ($('cityInput')?.value || '').trim();
     if (!city) return;
 
@@ -192,26 +299,44 @@
     const userLon = cityGeo.lon;
 
     const providers = readProviders();
+
+    // Conserve les coordonnées si on modifie sans changer l'adresse
+    if (editingIndex !== null && providers[editingIndex] && providers[editingIndex].address === provider.address) {
+      provider.lat = providers[editingIndex].lat;
+      provider.lon = providers[editingIndex].lon;
+    }
+
     let nearest = null;
-    let minDistance = Infinity;
+    let minKm = Infinity;
+    let changed = false;
 
-    for (const provider of providers) {
-      // eslint-disable-next-line no-await-in-loop
-      const g = await geocode(provider.address);
-      if (!g) continue;
+    for (const p of providers) {
+      let lat = (typeof p.lat === 'number') ? p.lat : null;
+      let lon = (typeof p.lon === 'number') ? p.lon : null;
 
-      const distance = Math.sqrt(Math.pow(g.lat - userLat, 2) + Math.pow(g.lon - userLon, 2));
-      if (distance < minDistance) {
-        minDistance = distance;
-        nearest = { ...provider, lat: g.lat, lon: g.lon };
+      if (lat === null || lon === null) {
+        // eslint-disable-next-line no-await-in-loop
+        const g = await geocode(p.address);
+        if (!g) continue;
+        p.lat = g.lat; p.lon = g.lon;
+        lat = g.lat; lon = g.lon;
+        changed = true;
+      }
+
+      const km = haversineKm(userLat, userLon, lat, lon);
+      if (km < minKm) {
+        minKm = km;
+        nearest = { ...p, lat, lon };
       }
     }
+
+    if (changed) writeProviders(providers);
 
     if (nearest && map) {
       map.setView([nearest.lat, nearest.lon], 12);
       L.popup()
         .setLatLng([nearest.lat, nearest.lon])
-        .setContent(markerPopup(nearest))
+        .setContent(markerPopup(nearest) + '<br><small>📍 Distance approx. : ' + minKm.toFixed(1) + ' km</small>')
         .openOn(map);
     } else {
       alert('Aucun prestataire trouvé.');
@@ -240,6 +365,86 @@
     list.style.display = (list.style.display === 'none' || list.style.display === '') ? 'block' : 'none';
   }
 
+
+  // ---------- Techniciens (import / export) ----------
+  function mergeUnique(a, b) {
+    const out = [];
+    const seen = new Set();
+    [...a, ...b].forEach(x => {
+      const v = (x || '').trim();
+      if (!v || seen.has(v)) return;
+      seen.add(v);
+      out.push(v);
+    });
+    return out;
+  }
+
+  function importTechnicians() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.csv,.txt,.json';
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+
+      const text = await file.text();
+      let names = [];
+
+      try {
+        if (file.name.toLowerCase().endsWith('.json')) {
+          const arr = safeJsonParse(text, []);
+          if (Array.isArray(arr)) names = arr.map(String);
+        } else {
+          // CSV/TXT : 1 nom par ligne ou première colonne
+          names = text
+            .split(/\r?\n/)
+            .map(l => l.split(';')[0].split(',')[0].trim())
+            .filter(Boolean);
+        }
+      } catch (e) {
+        console.error(e);
+        alert('Fichier illisible.');
+        return;
+      }
+
+      const current = readTechnicians();
+      const merged = mergeUnique(current, names);
+      writeTechnicians(merged);
+      alert('Techniciens importés : ' + merged.length);
+    });
+    input.click();
+  }
+
+  function exportTechnicians() {
+    // Export union: techniciens importés + techniciens issus des prestataires
+    const providers = readProviders();
+
+    // Conserve les coordonnées si on modifie sans changer l'adresse
+    if (editingIndex !== null && providers[editingIndex] && providers[editingIndex].address === provider.address) {
+      provider.lat = providers[editingIndex].lat;
+      provider.lon = providers[editingIndex].lon;
+    }
+
+    const fromProviders = providers
+      .map(p => ((p.firstName || '') + ' ' + (p.contactName || '')).trim())
+      .filter(Boolean);
+
+    const merged = mergeUnique(readTechnicians(), fromProviders);
+    const csv = merged.join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'techniciens_logikart.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+
+
   // ---------- Rapport (PDF fiable) ----------
   function openReportForm() {
     const modal = $('reportModal');
@@ -252,22 +457,39 @@
     if (modal) modal.style.display = 'none';
   }
 
-  function populateTechnicianSuggestions() {
+    function populateTechnicianSuggestions() {
     const datalist = $('technicianList');
     if (!datalist) return;
     datalist.innerHTML = '';
 
     const providers = readProviders();
+
+    // Conserve les coordonnées si on modifie sans changer l'adresse
+    if (editingIndex !== null && providers[editingIndex] && providers[editingIndex].address === provider.address) {
+      provider.lat = providers[editingIndex].lat;
+      provider.lon = providers[editingIndex].lon;
+    }
+
+    const techs = readTechnicians();
     const seen = new Set();
 
+    const add = (name) => {
+      const n = (name || '').trim();
+      if (!n || seen.has(n)) return;
+      seen.add(n);
+      const opt = document.createElement('option');
+      opt.value = n;
+      datalist.appendChild(opt);
+    };
+
+    // 1) depuis les prestataires
     providers.forEach(p => {
       const name = ((p.firstName || '') + ' ' + (p.contactName || '')).trim();
-      if (!name || seen.has(name)) return;
-      seen.add(name);
-      const opt = document.createElement('option');
-      opt.value = name;
-      datalist.appendChild(opt);
+      add(name);
     });
+
+    // 2) depuis la liste techniciens importée (si présente)
+    techs.forEach(add);
   }
 
   function reportValues() {
@@ -564,6 +786,8 @@
   window.hideForm = hideProviderForm;
   window.searchNearest = searchNearest;
   window.toggleProviderList = toggleProviderList;
+  window.importTechnicians = importTechnicians;
+  window.exportTechnicians = exportTechnicians;
   window.editProvider = editProvider;
   window.deleteProvider = deleteProvider;
 
