@@ -14,32 +14,35 @@
     <img src="logikart-logo.png" alt="LOGIKART" style="height: 60px; margin-bottom: 10px;" />
     <h1>LOGIKART - Carte des Prestataires</h1>
     <div style="opacity:.95; font-size:14px; margin-top:6px;">Réseau de prestataires informatiques</div>
-    <div id="burgerMenu">
+
+    <div id="burgerMenu" aria-label="Menu">
       ☰
-      <div id="menuDropdown" class="hidden">
+      <div id="menuDropdown" class="hidden" role="menu">
         <ul>
           <li onclick="toggleProviderList()">📋 Prestataires</li>
-          <li onclick="importTechnicians()">📥 Importer liste techniciens</li>
-          <li onclick="exportTechnicians()">📤 Exporter liste techniciens</li>
           <li onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
           <li onclick="openReportForm()">📝 Imprimer rapport d’intervention</li>
+          <li onclick="openImportTechnicians()">📥 Importer</li>
+          <li onclick="exportTechnicians()">📤 Exporter</li>
         </ul>
       </div>
     </div>
   </header>
 
-  <section style="padding: 10px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
-    <input type="text" id="cityInput" placeholder="Ville" style="width: 250px; padding: 8px;" />
-    <button onclick="searchNearest()">Rechercher</button>
-    <button onclick="addProvider()">Ajouter un prestataire</button>
+  <section class="topbar">
+    <input type="text" id="cityInput" placeholder="Ville" />
+    <button type="button" onclick="searchNearest()">Rechercher</button>
+    <button type="button" onclick="addProvider()">Ajouter un prestataire</button>
   </section>
 
-  <div id="map" style="width: 100%; height: 80vh;"></div>
+  <div id="map"></div>
+
+  <!-- Input caché pour import techniciens -->
+  <input type="file" id="technicianFileInput" accept=".csv,.txt,.json" style="display:none" />
 
   <!-- Formulaire modal d'ajout de prestataire -->
   <div id="providerFormSection" class="modal-overlay">
     <div class="modal-content">
-      <span class="close" onclick="hideForm()">×</span>
       <form id="providerForm">
         <h2>Ajouter un prestataire</h2>
         <input type="text" id="companyName" placeholder="RAISON SOCIALE" required />
@@ -51,11 +54,13 @@
         <input type="number" id="rate" placeholder="Tarif heure HT (€)" step="0.01" required />
         <input type="number" id="travelFees" placeholder="Frais de déplacement HT (€)" step="0.01" required />
         <input type="text" id="totalCost" placeholder="Tarif total HT (€)" readonly />
-        <div class="form-buttons">
-          <button type="submit">💾 Enregistrer</button>
-          <button type="button" onclick="hideForm()">❌ Annuler</button>
+
+        <div class="form-buttons sticky">
+          <button type="submit">Enregistrer</button>
+          <button type="button" onclick="hideForm()">Annuler</button>
         </div>
       </form>
+
       <script>
         const rateInput = document.getElementById("rate");
         const travelInput = document.getElementById("travelFees");
@@ -85,74 +90,82 @@
         <img src="logikart-logo.png" alt="LOGIKART" class="logo" style="height: 60px;" />
         <h2>Rapport d’intervention LOGIKART</h2>
 
-        <label for="ticket">Numéro de ticket :</label>
+        <label>Numéro de ticket :</label>
         <input type="text" name="ticket" required />
 
-        <label for="interventionDate">Date d’intervention :</label>
+        <label>Date d’intervention :</label>
         <input type="date" name="interventionDate" required />
 
-        <label for="siteAddress">Adresse du site :</label>
+        <label>Adresse du site :</label>
         <input type="text" name="siteAddress" required />
 
-        <label for="technician">Nom du technicien :</label>
+        <label>Nom du technicien :</label>
         <input type="text" name="technician" list="technicianList" required />
-		<datalist id="technicianList"></datalist>
+        <datalist id="technicianList"></datalist>
 
-        <label for="todo">Travail à faire :</label>
+        <label>Travail à faire :</label>
         <textarea name="todo" rows="6" required></textarea>
 
-        <label for="done">Travail effectué :</label>
+        <label>Travail effectué :</label>
         <textarea name="done" rows="10" required></textarea>
 
-        <label for="start">Heure d’arrivée :</label>
+        <label>Heure d’arrivée :</label>
         <input type="time" name="start" required />
 
-        <label for="end">Heure de départ :</label>
+        <label>Heure de départ :</label>
         <input type="time" name="end" required />
 
-        <label for="signTech">Signature du technicien :</label>
+        <label>Signature du technicien :</label>
         <input type="text" name="signTech" />
 
-        <label for="signClient">Signature du client :</label>
+        <label>Signature du client :</label>
         <input type="text" name="signClient" />
 
-        <div class="form-buttons">
+        <div class="form-buttons sticky">
           <button type="button" onclick="generatePDF()">📄 Générer PDF</button>
           <button type="button" onclick="closeReportForm()">❌ Fermer</button>
         </div>
       </form>
 
-      <div id="reportContent" style="display: none;"></div>
+      <div id="reportContent" style="display:none;"></div>
     </div>
   </div>
-  
-<!-- Fenêtre modale pour l'itinéraire -->
-<div id="itineraryModal" class="modal" style="display: none;">
-  <div class="modal-content">
-    <span class="close" onclick="closeItineraryModal()">×</span>
-    <h2>🧭 Calcul d'itinéraire</h2>
-    <form id="itineraryForm">
-      <label>Adresse de départ :</label>
-      <input type="text" id="startAddress" required />
 
-      <label>Adresse de destination :</label>
-      <input type="text" id="endAddress" required />
+  <!-- Fenêtre modale pour l'itinéraire -->
+  <div id="itineraryModal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <span class="close" onclick="closeItineraryModal()">×</span>
+      <h2>🧭 Calcul d'itinéraire</h2>
 
-      <div id="extraDestinations"></div>
+      <form id="itineraryForm">
+        <label>Adresse de départ :</label>
+        <input type="text" id="startAddress" required />
 
-      <button type="button" onclick="addDestinationField()">➕ Ajouter une destination</button>
-      <button type="button" onclick="calculateRoute()">🚗 Calculer l’itinéraire</button>
-    </form>
+        <label>Adresse de destination :</label>
+        <input type="text" id="endAddress" required />
 
-    <div id="routeResult" style="margin-top: 15px;"></div>
-	<button type="button" onclick="exportItineraryToPDF()" style="margin-top: 10px; display: none;" id="exportPdfBtn">📄 Exporter en PDF</button>
+        <div id="extraDestinations"></div>
+
+        <div class="form-buttons">
+          <button type="button" onclick="addDestinationField()">➕ Ajouter une destination</button>
+          <button type="button" onclick="calculateRoute()">🚗 Calculer l’itinéraire</button>
+        </div>
+      </form>
+
+      <div id="routeResult" style="margin-top: 15px;"></div>
+      <div class="form-buttons sticky">
+        <button type="button" onclick="exportItineraryToPDF()" style="display:none" id="exportPdfBtn">📄 Exporter en PDF</button>
+        <button type="button" onclick="closeItineraryModal()">❌ Fermer</button>
+      </div>
+    </div>
   </div>
-</div>
 
-  <!-- Script principal -->
+  <!-- Libs -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+  <!-- Script principal -->
   <script src="script.js"></script>
 </body>
 </html>
