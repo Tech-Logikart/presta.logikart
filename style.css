@@ -7,6 +7,7 @@
   --border-radius: 10px;
   --box-shadow: 0 4px 8px rgba(0,0,0,0.1);
 }
+
 body {
   margin: 0;
   font-family: 'Inter', 'Segoe UI', sans-serif;
@@ -15,6 +16,7 @@ body {
 }
 
 header {
+  position: relative;
   background-color: var(--primary-dark);
   color: white;
   padding: 20px;
@@ -35,17 +37,20 @@ h1 {
   color: white;
   cursor: pointer;
   z-index: 2000;
+  user-select: none;
 }
 
 #menuDropdown {
   position: absolute;
-  top: 50px;
-  right: 20px;
+  top: 40px;
+  right: 0;
   background: white;
-  border-radius: var(--border-radius);
-  box-shadow: var(--box-shadow);
+  color: #333;
+  border-radius: 10px;
+  box-shadow: 0 8px 18px rgba(0,0,0,0.18);
   overflow: hidden;
   z-index: 2001;
+  min-width: 220px;
 }
 
 #menuDropdown ul {
@@ -55,13 +60,27 @@ h1 {
 }
 
 #menuDropdown ul li {
-  padding: 12px 16px;
+  padding: 14px 16px;
   cursor: pointer;
-  transition: background 0.3s;
+  transition: background 0.2s;
+  font-size: 16px;
 }
 
 #menuDropdown ul li:hover {
   background: var(--accent);
+}
+
+.topbar{
+  padding: 10px;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.topbar input{
+  width: 250px;
+  padding: 10px;
 }
 
 input, textarea, select {
@@ -78,60 +97,26 @@ button {
   background-color: var(--primary);
   color: white;
   border: none;
-  padding: 10px 20px;
+  padding: 10px 18px;
   border-radius: var(--border-radius);
   font-size: 1rem;
   cursor: pointer;
-  transition: background 0.3s ease;
+  transition: background 0.2s ease;
 }
 
-button:hover {
-  background-color: var(--primary-dark);
-}
+button:hover { background-color: var(--primary-dark); }
 
-.modal {
-  position: fixed;
-  top: 0; left: 0;
-  width: 100%; height: 100%;
-  background: rgba(0, 0, 0, 0.4);
-  display: none;
-  justify-content: center;
-  align-items: center;
-  z-index: 1001;
-}
-
-.modal-content {
-  background: white;
-  padding: 30px;
-  width: 90%;
-  max-width: 600px;
-  border-radius: var(--border-radius);
-  box-shadow: var(--box-shadow);
-  overflow-y: auto;
-  max-height: 90vh;
-}
-
-.modal-content h2 {
-  margin-top: 0;
-  text-align: center;
-  color: var(--primary-dark);
-}
-
-.close {
-  position: absolute;
-  top: 16px;
-  right: 20px;
-  font-size: 24px;
-  cursor: pointer;
-}
+.hidden { display: none; }
 
 #map {
   height: 80vh;
   width: 100%;
   margin-top: 10px;
   border-top: 1px solid #ddd;
+  min-height: 70vh;
 }
 
+/* Provider list */
 #providerList {
   position: absolute;
   right: 0;
@@ -155,95 +140,80 @@ button:hover {
   box-shadow: var(--box-shadow);
 }
 
-.form-buttons {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
-.hidden {
+/* Modals */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
   display: none;
-}
-
-.pdf-logo {
-  height: 50px;
-  margin-bottom: 10px;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 90px;
+  z-index: 9999;
+  box-sizing: border-box;
 }
 
 .modal-overlay {
   display: none;
   position: fixed;
-  z-index: 1001;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 100%;
+  inset: 0;
   background-color: rgba(0,0,0,0.5);
   justify-content: center;
-  align-items: center;
-}
-
-/* ===== Correctifs UX (override) =====
-   - Évite que le header masque le haut des formulaires
-   - Met les modales au-dessus de tout
-*/
-.modal, .modal-overlay {
-  z-index: 9999;
   align-items: flex-start;
-  padding-top: 110px; /* hauteur du bandeau */
+  padding-top: 90px;
+  z-index: 9999;
   box-sizing: border-box;
 }
 
 .modal-content {
-  margin-top: 0 !important;
-}
-
-/* La carte doit rester visible même si d'autres blocs s'ajoutent */
-#map {
-  min-height: 70vh;
-}
-
-#menuDropdown {
-  position: absolute;
-  top: 30px;
-  right: 0;
   background: white;
-  color: #333;
-  border-radius: 6px;
-  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-  padding: 10px;
-}
-
-.modal-content {
-  background: white;
-  padding: 20px 30px;
-  border-radius: 8px;
-  width: 90%;
-  max-width: 600px;
-  max-height: 90vh;
-  overflow-y: auto;
+  width: 92%;
+  max-width: 650px;
+  max-height: calc(100vh - 120px);
+  border-radius: 12px;
+  box-shadow: var(--box-shadow);
   position: relative;
-}
 
-
-
-/* ===== UX fix: formulaires toujours accessibles en bas ===== */
-.modal-content {
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
-.modal-content form {
-  flex: 1;
+.modal-content form{
+  padding: 20px 26px;
   overflow-y: auto;
-  padding-right: 4px; /* évite que la scrollbar masque le contenu */
 }
 
+.modal-content h2 {
+  margin-top: 0;
+  text-align: center;
+  color: var(--primary-dark);
+}
+
+.close {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  font-size: 28px;
+  cursor: pointer;
+}
+
+/* Buttons bar */
 .form-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  padding: 12px 26px;
+}
+
+.form-buttons.sticky{
   position: sticky;
   bottom: 0;
-  background: #fff;
-  padding: 12px 0 0 0;
-  margin-top: 10px;
+  background: white;
   border-top: 1px solid #eee;
+  z-index: 2;
+  justify-content: space-between;
 }
+
+.pdf-logo { height: 50px; margin-bottom: 10px; }
