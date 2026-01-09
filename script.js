@@ -1,14 +1,25 @@
-// LOGIKART - script.js (corrigé)
-// Fixes:
-// - plus de blocage JS (aucune erreur de template)
-// - Recherche / Ajout prestataire / Itinéraire / Import-Export techniciens OK
-// - PDF non blanc (conteneur hors écran + attente images)
+import os, textwrap, re, json
+
+script = r"""// LOGIKART - script.js (propre)
+// Objectifs :
+// - UI stable (pas de crash JS)
+// - Géocodage rapide (cache localStorage) + coords stockées sur les prestataires
+// - Prestataires : panneau latéral fonctionne + tri alphabétique
+// - Recherche "Ville" (prestataire le plus proche)
+// - Itinéraire OpenRouteService + export PDF itinéraire
+// - Rapport d’intervention : PDF non blanc (conteneur hors écran + attente images)
+// - Import / Export techniciens (CSV/TXT/JSON)
+// ---------------------------------------------------------------------------
 
 (function () {
   'use strict';
 
-  const ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ4YTg5NTg4NjE0OTQ5NjZhMDY3YzgxZjJjOGE3ODI3IiwiaCI6Im11cm11cjY0In0="; // clé OpenRouteService
+  // ==== CONFIG =============================================================
+  const ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ4YTg5NTg4NjE0OTQ5NjZhMDY3YzgxZjJjOGE3ODI3IiwiaCI6Im11cm11cjY0In0="; // OpenRouteService
+  const NOMINATIM_PROXY = 'https://proxy-logikart.samir-mouheb.workers.dev/?url=';
+  const GEO_CACHE_KEY = 'geocodeCache'; // localStorage key
 
+  // ==== HELPERS ============================================================
   const $ = (id) => document.getElementById(id);
 
   function safeJsonParse(s, fallback) {
@@ -24,11 +35,10 @@
       .replace(/'/g, '&#039;');
   }
 
-  // ----------------- Storage helpers -----------------
+  // ==== STORAGE ============================================================
   function readProviders() {
     return safeJsonParse(localStorage.getItem('providers'), []);
   }
-
   function writeProviders(providers) {
     localStorage.setItem('providers', JSON.stringify(providers));
   }
@@ -36,13 +46,11 @@
   function readTechnicians() {
     return safeJsonParse(localStorage.getItem('technicians'), []);
   }
-
   function writeTechnicians(list) {
     localStorage.setItem('technicians', JSON.stringify(list));
   }
 
-  // ----------------- Geo cache -----------------
-  const GEO_CACHE_KEY = 'geocodeCache';
+  // ==== GEO CACHE ==========================================================
   function readGeoCache() {
     return safeJsonParse(localStorage.getItem(GEO_CACHE_KEY), {});
   }
@@ -54,40 +62,44 @@
     const q = String(address || '').trim();
     if (!q) return null;
 
+    // Cache : évite de recontacter Nominatim
     const cache = readGeoCache();
-    if (cache[q] && typeof cache[q].lat === 'number' && typeof cache[q].lon === 'number') {
-      return cache[q];
-    }
+    const cached = cache[q];
+    if (cached && typeof cached.lat === 'number' && typeof cached.lon === 'number') return cached;
 
-    const url = 'https://proxy-logikart.samir-mouheb.workers.dev/?url=' +
-      encodeURIComponent('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + q);
+    const target = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(q);
+    const url = NOMINATIM_PROXY + encodeURIComponent(target);
 
     const res = await fetch(url);
     if (!res.ok) return null;
+
     const data = await res.json();
     if (!Array.isArray(data) || data.length === 0) return null;
 
     const geo = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-    cache[q] = geo;
-    writeGeoCache(cache);
-    return geo;
+    if (Number.isFinite(geo.lat) && Number.isFinite(geo.lon)) {
+      cache[q] = geo;
+      writeGeoCache(cache);
+      return geo;
+    }
+    return null;
   }
 
-  // ----------------- Map -----------------
+  // ==== MAP ================================================================
   let map = null;
   let markers = [];
   let routeLine = null;
 
   function clearMarkers() {
     if (!map) return;
-    markers.forEach(m => map.removeLayer(m));
+    markers.forEach((m) => map.removeLayer(m));
     markers = [];
   }
 
   function markerPopup(provider) {
     const name = ((provider.firstName || '') + ' ' + (provider.contactName || '')).trim();
     return (
-      '<strong>' + escapeHtml(provider.companyName) + '</strong><br>' +
+      '<strong>' + escapeHtml(provider.companyName || '') + '</strong><br>' +
       '👤 ' + escapeHtml(name) + '<br>' +
       '📧 ' + escapeHtml(provider.email || '') + '<br>' +
       '📞 ' + escapeHtml(provider.phone || '') +
@@ -96,10 +108,13 @@
   }
 
   async function ensureProviderCoords(provider, index) {
-    if (provider && typeof provider.lat === 'number' && typeof provider.lon === 'number') return provider;
+    if (!provider) return provider;
+    if (typeof provider.lat === 'number' && typeof provider.lon === 'number') return provider;
+
     const g = await geocode(provider.address);
     if (!g) return provider;
 
+    // On persiste sur le provider en base pour accélérer la suite
     const providers = readProviders();
     if (providers[index]) {
       providers[index].lat = g.lat;
@@ -113,6 +128,7 @@
 
   async function addMarkerForProvider(provider, index) {
     if (!map) return;
+
     const p = await ensureProviderCoords(provider, index);
     if (!p || typeof p.lat !== 'number' || typeof p.lon !== 'number') return;
 
@@ -123,13 +139,14 @@
   async function loadProvidersToMap() {
     clearMarkers();
     const providers = readProviders();
-    // Géocodage léger : 3 en parallèle
+
+    // Géocodage concurrent (léger) : 3 workers
     const concurrency = 3;
-    let i = 0;
+    let cursor = 0;
 
     async function worker() {
-      while (i < providers.length) {
-        const idx = i++;
+      while (cursor < providers.length) {
+        const idx = cursor++;
         // eslint-disable-next-line no-await-in-loop
         await addMarkerForProvider(providers[idx], idx);
       }
@@ -138,10 +155,11 @@
     const workers = Array.from({ length: Math.min(concurrency, providers.length) }, () => worker());
     await Promise.all(workers);
 
+    // Rafraîchit le panneau si visible
     updateProviderList();
   }
 
-  // ----------------- Provider form -----------------
+  // ==== PRESTATAIRES : FORM =================================================
   let editingIndex = null;
 
   function showProviderForm() {
@@ -150,8 +168,7 @@
   }
 
   function hideProviderForm() {
-    const form = $('providerForm');
-    form?.reset();
+    $('providerForm')?.reset();
     const overlay = $('providerFormSection');
     if (overlay) overlay.style.display = 'none';
     editingIndex = null;
@@ -172,7 +189,7 @@
       totalCost: $('totalCost')?.value || ''
     };
 
-    // Géocode tout de suite pour accélérer l'affichage et la recherche
+    // Geocode immédiat : vitesse pour la carte et la recherche
     const g = await geocode(provider.address);
     if (g) {
       provider.lat = g.lat;
@@ -211,25 +228,51 @@
     const providers = readProviders();
     if (!providers[index]) return;
     if (!confirm('Confirmer la suppression ?')) return;
+
     providers.splice(index, 1);
     writeProviders(providers);
     loadProvidersToMap();
   }
 
+  // ==== PRESTATAIRES : LISTE (tri + affichage) ==============================
   function updateProviderList() {
     const container = $('providerList');
     if (!container) return;
 
+    // On ne force pas l'ouverture ici ; on remplit seulement si visible
+    // (ça évite de "faire apparaître" la liste sans l'avoir demandée)
+    const isVisible = container.style.display === 'block';
+    if (!isVisible) return;
+
     const providers = readProviders();
+
+    // Tri alphabétique : raison sociale, puis nom, puis prénom
+    providers.sort((a, b) => {
+      const aCompany = (a.companyName || '').trim();
+      const bCompany = (b.companyName || '').trim();
+      const c = aCompany.localeCompare(bCompany, 'fr', { sensitivity: 'base' });
+      if (c !== 0) return c;
+
+      const aName = ((a.contactName || '') + ' ' + (a.firstName || '')).trim();
+      const bName = ((b.contactName || '') + ' ' + (b.firstName || '')).trim();
+      return aName.localeCompare(bName, 'fr', { sensitivity: 'base' });
+    });
+
     container.innerHTML = '';
+
+    if (!providers.length) {
+      container.innerHTML = '<div class="provider-entry">Aucun prestataire enregistré.</div>';
+      return;
+    }
 
     providers.forEach((p, i) => {
       const div = document.createElement('div');
       div.className = 'provider-entry';
+
       const name = ((p.firstName || '') + ' ' + (p.contactName || '')).trim();
 
       div.innerHTML =
-        '<strong>' + escapeHtml(p.companyName) + '</strong><br>' +
+        '<strong>' + escapeHtml(p.companyName || '') + '</strong><br>' +
         '👤 ' + escapeHtml(name) + '<br>' +
         '📧 ' + escapeHtml(p.email || '') + '<br>' +
         '📞 ' + escapeHtml(p.phone || '') + '<br>' +
@@ -243,7 +286,20 @@
     });
   }
 
-  // ----------------- Search nearest -----------------
+  function toggleProviderList() {
+    const list = $('providerList');
+    if (!list) return;
+
+    const willShow = (list.style.display === 'none' || list.style.display === '');
+    list.style.display = willShow ? 'block' : 'none';
+
+    if (willShow) {
+      // Remplit immédiatement au moment de l’ouverture
+      updateProviderList();
+    }
+  }
+
+  // ==== RECHERCHE VILLE (plus proche prestataire) ===========================
   async function searchNearest() {
     const city = ($('cityInput')?.value || '').trim();
     if (!city) return;
@@ -267,9 +323,10 @@
       const ensured = await ensureProviderCoords(p, i);
       if (!ensured || typeof ensured.lat !== 'number' || typeof ensured.lon !== 'number') continue;
 
-      const distance = Math.sqrt(Math.pow(ensured.lat - userLat, 2) + Math.pow(ensured.lon - userLon, 2));
-      if (distance < minDistance) {
-        minDistance = distance;
+      // Distance approximative (suffisant pour "le plus proche" rapide)
+      const d = Math.sqrt(Math.pow(ensured.lat - userLat, 2) + Math.pow(ensured.lon - userLon, 2));
+      if (d < minDistance) {
+        minDistance = d;
         nearest = ensured;
       }
     }
@@ -282,7 +339,7 @@
     }
   }
 
-  // ----------------- Burger menu -----------------
+  // ==== BURGER MENU =========================================================
   function initBurgerMenu() {
     const burger = $('burgerMenu');
     const dropdown = $('menuDropdown');
@@ -296,13 +353,7 @@
     document.addEventListener('click', () => dropdown.classList.add('hidden'));
   }
 
-  function toggleProviderList() {
-    const list = $('providerList');
-    if (!list) return;
-    list.style.display = (list.style.display === 'none' || list.style.display === '') ? 'block' : 'none';
-  }
-
-  // ----------------- Technicians import/export -----------------
+  // ==== TECHNICIENS : IMPORT / EXPORT ======================================
   function combinedTechnicians() {
     const imported = readTechnicians();
     const providers = readProviders();
@@ -311,7 +362,7 @@
       .filter(Boolean);
 
     const all = [...imported, ...fromProviders].map(s => s.trim()).filter(Boolean);
-    return Array.from(new Set(all)).sort((a,b) => a.localeCompare(b, 'fr'));
+    return Array.from(new Set(all)).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
   }
 
   function populateTechnicianSuggestions() {
@@ -319,7 +370,7 @@
     if (!datalist) return;
     datalist.innerHTML = '';
 
-    combinedTechnicians().forEach(name => {
+    combinedTechnicians().forEach((name) => {
       const opt = document.createElement('option');
       opt.value = name;
       datalist.appendChild(opt);
@@ -338,12 +389,14 @@
 
   function parseTechniciansText(text) {
     const t = String(text || '');
-    // JSON ?
     const json = safeJsonParse(t, null);
+
+    // JSON support : ["A", "B"] ou {"technicians":[...]}
     if (json) {
       if (Array.isArray(json)) return json.map(String);
       if (Array.isArray(json.technicians)) return json.technicians.map(String);
     }
+
     // CSV/TXT : split sur lignes, virgules, points-virgules
     return t
       .split(/\r?\n|,|;/g)
@@ -360,6 +413,7 @@
       const list = parseTechniciansText(reader.result);
       const current = readTechnicians();
       const merged = Array.from(new Set([...current, ...list].map(s => s.trim()).filter(Boolean)));
+
       writeTechnicians(merged);
       alert('Import terminé : ' + merged.length + ' technicien(s).');
       populateTechnicianSuggestions();
@@ -373,9 +427,11 @@
       alert('Aucun technicien à exporter.');
       return;
     }
+
     const csv = 'technician\n' + list.map(n => '"' + n.replace(/"/g, '""') + '"').join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
+
     const a = document.createElement('a');
     a.href = url;
     a.download = 'techniciens_LOGIKART.csv';
@@ -385,7 +441,7 @@
     URL.revokeObjectURL(url);
   }
 
-  // ----------------- Report (PDF non blanc) -----------------
+  // ==== RAPPORT : PDF NON BLANC ============================================
   function openReportForm() {
     const modal = $('reportModal');
     if (modal) modal.style.display = 'flex';
@@ -542,7 +598,7 @@
 
     const v = reportValues();
 
-    // Conteneur temporaire VISIBLE hors écran (évite PDF blanc)
+    // Conteneur temporaire hors écran (évite le PDF blanc)
     const tmp = document.createElement('div');
     tmp.style.position = 'fixed';
     tmp.style.left = '-9999px';
@@ -571,12 +627,11 @@
     }
   }
 
-  // ----------------- Itinerary -----------------
+  // ==== ITINÉRAIRE ORS ======================================================
   function openItineraryTool() {
     const modal = $('itineraryModal');
     if (modal) modal.style.display = 'flex';
-    const result = $('routeResult');
-    if (result) result.innerHTML = '';
+    $('routeResult') && ($('routeResult').innerHTML = '');
     const btn = $('exportPdfBtn');
     if (btn) btn.style.display = 'none';
     if (routeLine && map) { map.removeLayer(routeLine); routeLine = null; }
@@ -645,7 +700,7 @@
     const geojson = await orsRes.json();
     const summary = geojson?.features?.[0]?.properties?.summary;
 
-    // instructions
+    // instructions (pour export PDF)
     try {
       const steps = geojson.features[0].properties.segments[0].steps || [];
       window.lastRouteInstructions = steps.map((s, i) =>
@@ -682,6 +737,7 @@
       alert('Librairie PDF introuvable (html2pdf).');
       return;
     }
+    if (!map) return;
 
     const start = ($('startAddress')?.value || '').trim();
     const end = ($('endAddress')?.value || '').trim();
@@ -734,10 +790,10 @@
     });
   }
 
-  // ----------------- Boot -----------------
+  // ==== INIT ================================================================
   function init() {
     if (typeof L === 'undefined') {
-      console.error('Leaflet non chargé (L is undefined).');
+      console.error('Leaflet non chargé (L is undefined). Vérifie les scripts Leaflet dans index.html.');
       return;
     }
 
@@ -746,9 +802,11 @@
       attribution: '© OpenStreetMap contributors'
     }).addTo(map);
 
+    // Form prestataire
     const form = $('providerForm');
     if (form) form.addEventListener('submit', handleFormSubmit);
 
+    // Import techniciens
     const techInput = $('technicianFileInput');
     if (techInput) techInput.addEventListener('change', handleTechnicianFileChange);
 
@@ -758,7 +816,7 @@
 
   document.addEventListener('DOMContentLoaded', init);
 
-  // Expose globals (onclick in HTML)
+  // ==== EXPOSE GLOBALS (onclick dans index.html) ============================
   window.addProvider = showProviderForm;
   window.hideForm = hideProviderForm;
   window.searchNearest = searchNearest;
@@ -780,3 +838,10 @@
   window.exportTechnicians = exportTechnicians;
 
 })();
+"""
+
+out_path = "/mnt/data/script.js"
+with open(out_path, "w", encoding="utf-8") as f:
+    f.write(script)
+
+out_path
