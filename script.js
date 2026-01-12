@@ -1,15 +1,17 @@
-// LOGIKART - script.js (propre)
-// - Prestataires : panneau fonctionne + tri alphabétique
-// - Géocodage rapide : cache localStorage + lat/lon stockées sur prestataire
-// - Recherche "Ville" (prestataire le plus proche)
-// - Itinéraire ORS + export PDF itinéraire
+// LOGIKART - script.js (propre + correctifs)
+// Correctifs :
+// - Prestataires : clic menu OK (stopPropagation) + liste rendue + tri alphabétique
+// - Pointeurs : accepte lat/lon en string (convertit en number) => marqueurs reviennent
+// - Géocodage : cache localStorage + persistance lat/lon
+// - Recherche Ville : prestataire le plus proche
+// - Itinéraire ORS + export PDF
 // - Rapport : PDF non blanc (conteneur hors écran + attente images)
 // - Import/Export techniciens (CSV/TXT/JSON)
 
 (function () {
-  'use strict';
+  "use strict";
 
-  // ================= CONFIG =================
+  // ==== CONFIG =============================================================
   const ORS_API_KEY =
     "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImQ4YTg5NTg4NjE0OTQ5NjZhMDY3YzgxZjJjOGE3ODI3IiwiaCI6Im11cm11cjY0In0=";
   const NOMINATIM_PROXY = "https://proxy-logikart.samir-mouheb.workers.dev/?url=";
@@ -34,7 +36,7 @@
       .replace(/'/g, "&#039;");
   }
 
-  // ================= STORAGE =================
+  // ==== STORAGE ============================================================
   function readProviders() {
     return safeJsonParse(localStorage.getItem("providers"), []);
   }
@@ -49,7 +51,7 @@
     localStorage.setItem("technicians", JSON.stringify(list));
   }
 
-  // ================= GEO CACHE =================
+  // ==== GEO CACHE ==========================================================
   function readGeoCache() {
     return safeJsonParse(localStorage.getItem(GEO_CACHE_KEY), {});
   }
@@ -62,13 +64,13 @@
     if (!q) return null;
 
     const cache = readGeoCache();
-    if (cache[q] && typeof cache[q].lat === "number" && typeof cache[q].lon === "number") {
-      return cache[q];
-    }
+    const cached = cache[q];
+    if (cached && typeof cached.lat === "number" && typeof cached.lon === "number") return cached;
 
     const target =
       "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" +
       encodeURIComponent(q);
+
     const url = NOMINATIM_PROXY + encodeURIComponent(target);
 
     const res = await fetch(url);
@@ -78,14 +80,15 @@
     if (!Array.isArray(data) || data.length === 0) return null;
 
     const geo = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-    if (!Number.isFinite(geo.lat) || !Number.isFinite(geo.lon)) return null;
-
-    cache[q] = geo;
-    writeGeoCache(cache);
-    return geo;
+    if (Number.isFinite(geo.lat) && Number.isFinite(geo.lon)) {
+      cache[q] = geo;
+      writeGeoCache(cache);
+      return geo;
+    }
+    return null;
   }
 
-  // ================= MAP =================
+  // ==== MAP ================================================================
   let map = null;
   let markers = [];
   let routeLine = null;
@@ -99,30 +102,46 @@
   function markerPopup(provider) {
     const name = ((provider.firstName || "") + " " + (provider.contactName || "")).trim();
     return (
-      "<strong>" + escapeHtml(provider.companyName || "") + "</strong><br>" +
-      "👤 " + escapeHtml(name) + "<br>" +
-      "📧 " + escapeHtml(provider.email || "") + "<br>" +
-      "📞 " + escapeHtml(provider.phone || "") +
+      "<strong>" +
+      escapeHtml(provider.companyName || "") +
+      "</strong><br>" +
+      "👤 " +
+      escapeHtml(name) +
+      "<br>" +
+      "📧 " +
+      escapeHtml(provider.email || "") +
+      "<br>" +
+      "📞 " +
+      escapeHtml(provider.phone || "") +
       (provider.totalCost ? "<br>💰 " + escapeHtml(provider.totalCost) : "")
     );
+  }
+
+  // ✅ IMPORTANT : convertit lat/lon string -> number (sinon plus de marqueurs)
+  function normalizeCoords(p) {
+    if (!p) return p;
+    if (typeof p.lat === "string") p.lat = parseFloat(p.lat);
+    if (typeof p.lon === "string") p.lon = parseFloat(p.lon);
+    if (!Number.isFinite(p.lat)) delete p.lat;
+    if (!Number.isFinite(p.lon)) delete p.lon;
+    return p;
   }
 
   async function ensureProviderCoords(provider, index) {
     if (!provider) return provider;
 
+    normalizeCoords(provider);
     if (typeof provider.lat === "number" && typeof provider.lon === "number") return provider;
 
     const g = await geocode(provider.address);
     if (!g) return provider;
 
-    // Persister dans le storage
     const providers = readProviders();
     if (providers[index]) {
       providers[index].lat = g.lat;
       providers[index].lon = g.lon;
       writeProviders(providers);
     }
-
     provider.lat = g.lat;
     provider.lon = g.lon;
     return provider;
@@ -132,7 +151,10 @@
     if (!map) return;
 
     const p = await ensureProviderCoords(provider, index);
-    if (!p || typeof p.lat !== "number" || typeof p.lon !== "number") return;
+    if (!p) return;
+
+    normalizeCoords(p);
+    if (typeof p.lat !== "number" || typeof p.lon !== "number") return;
 
     const marker = L.marker([p.lat, p.lon]).addTo(map).bindPopup(markerPopup(p));
     markers.push(marker);
@@ -142,7 +164,6 @@
     clearMarkers();
     const providers = readProviders();
 
-    // Géocodage léger : 3 en parallèle
     const concurrency = 3;
     let cursor = 0;
 
@@ -154,17 +175,14 @@
       }
     }
 
-    const workers = Array.from(
-      { length: Math.min(concurrency, providers.length) },
-      () => worker()
-    );
+    const workers = Array.from({ length: Math.min(concurrency, providers.length) }, () => worker());
     await Promise.all(workers);
 
-    // Refresh liste si visible
+    // ✅ On rend toujours la liste (même si panel caché)
     updateProviderList();
   }
 
-  // ================= PROVIDER FORM =================
+  // ==== PRESTATAIRES : FORM =================================================
   let editingIndex = null;
 
   function showProviderForm() {
@@ -194,7 +212,6 @@
       totalCost: $("totalCost")?.value || "",
     };
 
-    // Géocode maintenant pour accélérer carte + recherche
     const g = await geocode(provider.address);
     if (g) {
       provider.lat = g.lat;
@@ -239,17 +256,14 @@
     loadProvidersToMap();
   }
 
-  // ================= PROVIDER LIST (TRI) =================
+  // ==== PRESTATAIRES : LISTE (tri + affichage) ==============================
   function updateProviderList() {
     const container = $("providerList");
     if (!container) return;
 
-    // on remplit uniquement si la liste est visible
-    if (container.style.display !== "block") return;
-
     const providers = readProviders();
 
-    // Tri alphabétique : raison sociale, puis nom, puis prénom
+    // Tri alphabétique
     providers.sort((a, b) => {
       const aCompany = (a.companyName || "").trim();
       const bCompany = (b.companyName || "").trim();
@@ -264,24 +278,39 @@
     container.innerHTML = "";
 
     if (!providers.length) {
-      container.innerHTML = `<div class="provider-entry">Aucun prestataire enregistré.</div>`;
+      container.innerHTML = '<div class="provider-entry">Aucun prestataire enregistré.</div>';
       return;
     }
 
     providers.forEach((p, i) => {
       const div = document.createElement("div");
       div.className = "provider-entry";
+
       const name = ((p.firstName || "") + " " + (p.contactName || "")).trim();
 
       div.innerHTML =
-        "<strong>" + escapeHtml(p.companyName || "") + "</strong><br>" +
-        "👤 " + escapeHtml(name) + "<br>" +
-        "📧 " + escapeHtml(p.email || "") + "<br>" +
-        "📞 " + escapeHtml(p.phone || "") + "<br>" +
-        "💰 Tarif total HT : " + escapeHtml(p.totalCost || "N/A") + "<br>" +
+        "<strong>" +
+        escapeHtml(p.companyName || "") +
+        "</strong><br>" +
+        "👤 " +
+        escapeHtml(name) +
+        "<br>" +
+        "📧 " +
+        escapeHtml(p.email || "") +
+        "<br>" +
+        "📞 " +
+        escapeHtml(p.phone || "") +
+        "<br>" +
+        "💰 Tarif total HT : " +
+        escapeHtml(p.totalCost || "N/A") +
+        "<br>" +
         '<div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">' +
-        '<button type="button" onclick="editProvider(' + i + ')">✏️ Modifier</button>' +
-        '<button type="button" onclick="deleteProvider(' + i + ')">🗑️ Supprimer</button>' +
+        '<button type="button" onclick="editProvider(' +
+        i +
+        ')">✏️ Modifier</button>' +
+        '<button type="button" onclick="deleteProvider(' +
+        i +
+        ')">🗑️ Supprimer</button>' +
         "</div>";
 
       container.appendChild(div);
@@ -298,7 +327,7 @@
     if (willShow) updateProviderList();
   }
 
-  // ================= SEARCH NEAREST =================
+  // ==== RECHERCHE VILLE (plus proche prestataire) ===========================
   async function searchNearest() {
     const city = ($("cityInput")?.value || "").trim();
     if (!city) return;
@@ -320,9 +349,13 @@
       const p = providers[i];
       // eslint-disable-next-line no-await-in-loop
       const ensured = await ensureProviderCoords(p, i);
+      normalizeCoords(ensured);
       if (!ensured || typeof ensured.lat !== "number" || typeof ensured.lon !== "number") continue;
 
-      const d = Math.sqrt(Math.pow(ensured.lat - userLat, 2) + Math.pow(ensured.lon - userLon, 2));
+      const d = Math.sqrt(
+        Math.pow(ensured.lat - userLat, 2) + Math.pow(ensured.lon - userLon, 2)
+      );
+
       if (d < minDistance) {
         minDistance = d;
         nearest = ensured;
@@ -331,13 +364,16 @@
 
     if (nearest && map) {
       map.setView([nearest.lat, nearest.lon], 12);
-      L.popup().setLatLng([nearest.lat, nearest.lon]).setContent(markerPopup(nearest)).openOn(map);
+      L.popup()
+        .setLatLng([nearest.lat, nearest.lon])
+        .setContent(markerPopup(nearest))
+        .openOn(map);
     } else {
       alert("Aucun prestataire trouvé.");
     }
   }
 
-  // ================= BURGER MENU =================
+  // ==== BURGER MENU =========================================================
   function initBurgerMenu() {
     const burger = $("burgerMenu");
     const dropdown = $("menuDropdown");
@@ -348,27 +384,31 @@
       dropdown.classList.toggle("hidden");
     });
 
+    // ✅ IMPORTANT : empêche la fermeture instantanée quand on clique sur un item
+    dropdown.addEventListener("click", (e) => e.stopPropagation());
+
     document.addEventListener("click", () => dropdown.classList.add("hidden"));
   }
 
-  // ================= TECHNICIANS =================
+  // ==== TECHNICIENS : IMPORT / EXPORT ======================================
   function combinedTechnicians() {
     const imported = readTechnicians();
     const providers = readProviders();
-
     const fromProviders = providers
       .map((p) => ((p.firstName || "") + " " + (p.contactName || "")).trim())
       .filter(Boolean);
 
     const all = [...imported, ...fromProviders].map((s) => s.trim()).filter(Boolean);
-    return Array.from(new Set(all)).sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+    return Array.from(new Set(all)).sort((a, b) =>
+      a.localeCompare(b, "fr", { sensitivity: "base" })
+    );
   }
 
   function populateTechnicianSuggestions() {
     const datalist = $("technicianList");
     if (!datalist) return;
-
     datalist.innerHTML = "";
+
     combinedTechnicians().forEach((name) => {
       const opt = document.createElement("option");
       opt.value = name;
@@ -395,7 +435,10 @@
       if (Array.isArray(json.technicians)) return json.technicians.map(String);
     }
 
-    return t.split(/\r?\n|,|;/g).map((s) => s.trim()).filter(Boolean);
+    return t
+      .split(/\r?\n|,|;/g)
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
 
   function handleTechnicianFileChange(e) {
@@ -422,7 +465,7 @@
       return;
     }
 
-    const csv = "technician\n" + list.map((n) => `"${n.replace(/"/g, '""')}"`).join("\n");
+    const csv = "technician\n" + list.map((n) => '"' + n.replace(/"/g, '""') + '"').join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
 
@@ -435,7 +478,7 @@
     URL.revokeObjectURL(url);
   }
 
-  // ================= REPORT (PDF) =================
+  // ==== RAPPORT : PDF NON BLANC ============================================
   function openReportForm() {
     const modal = $("reportModal");
     if (modal) modal.style.display = "flex";
@@ -449,7 +492,7 @@
 
   function reportValues() {
     const form = $("reportForm");
-    const get = (name) => (form?.querySelector(`[name="${name}"]`)?.value || "").trim();
+    const get = (name) => (form?.querySelector('[name="' + name + '"]')?.value || "").trim();
     return {
       ticket: get("ticket"),
       date: get("interventionDate"),
@@ -504,9 +547,15 @@
     const info = document.createElement("div");
     info.style.marginTop = "16px";
     info.innerHTML =
-      `<p><strong>Ticket :</strong> ${escapeHtml(v.ticket)}</p>` +
-      `<p><strong>Adresse du site :</strong> ${escapeHtml(v.site)}</p>` +
-      `<p><strong>Nom du technicien :</strong> ${escapeHtml(v.tech)}</p>`;
+      "<p><strong>Ticket :</strong> " +
+      escapeHtml(v.ticket) +
+      "</p>" +
+      "<p><strong>Adresse du site :</strong> " +
+      escapeHtml(v.site) +
+      "</p>" +
+      "<p><strong>Nom du technicien :</strong> " +
+      escapeHtml(v.tech) +
+      "</p>";
     root.appendChild(info);
 
     function section(label, text, minH) {
@@ -531,8 +580,12 @@
     const times = document.createElement("div");
     times.style.marginTop = "14px";
     times.innerHTML =
-      `<p><strong>Heure d'arrivée :</strong> ${escapeHtml(v.start)}</p>` +
-      `<p><strong>Heure de départ :</strong> ${escapeHtml(v.end)}</p>`;
+      "<p><strong>Heure d'arrivée :</strong> " +
+      escapeHtml(v.start) +
+      "</p>" +
+      "<p><strong>Heure de départ :</strong> " +
+      escapeHtml(v.end) +
+      "</p>";
     root.appendChild(times);
 
     const sig = document.createElement("div");
@@ -544,7 +597,7 @@
       const wrap = document.createElement("div");
       wrap.style.width = "48%";
       const p = document.createElement("p");
-      p.innerHTML = `<strong>${label}</strong>`;
+      p.innerHTML = "<strong>" + label + "</strong>";
       const box = document.createElement("div");
       box.style.border = "1px solid #ccc";
       box.style.height = "60px";
@@ -595,7 +648,6 @@
 
     const v = reportValues();
 
-    // Conteneur hors écran (évite PDF blanc)
     const tmp = document.createElement("div");
     tmp.style.position = "fixed";
     tmp.style.left = "-9999px";
@@ -624,12 +676,11 @@
     }
   }
 
-  // ================= ITINERARY =================
+  // ==== ITINÉRAIRE ORS ======================================================
   function openItineraryTool() {
     const modal = $("itineraryModal");
     if (modal) modal.style.display = "flex";
-    const result = $("routeResult");
-    if (result) result.innerHTML = "";
+    $("routeResult") && ($("routeResult").innerHTML = "");
     const btn = $("exportPdfBtn");
     if (btn) btn.style.display = "none";
     if (routeLine && map) {
@@ -681,20 +732,17 @@
         alert("Adresse non trouvée : " + addr);
         return;
       }
-      coords.push([g.lon, g.lat]); // ORS = [lon,lat]
+      coords.push([g.lon, g.lat]);
     }
 
-    const orsRes = await fetch(
-      "https://api.openrouteservice.org/v2/directions/driving-car/geojson",
-      {
-        method: "POST",
-        headers: {
-          Authorization: ORS_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ coordinates: coords, language: "fr", instructions: true }),
-      }
-    );
+    const orsRes = await fetch("https://api.openrouteservice.org/v2/directions/driving-car/geojson", {
+      method: "POST",
+      headers: {
+        Authorization: ORS_API_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ coordinates: coords, language: "fr", instructions: true }),
+    });
 
     if (!orsRes.ok) {
       alert("Erreur lors du calcul d'itinéraire.");
@@ -723,8 +771,12 @@
     const durationMin = summary ? Math.round(summary.duration / 60) : "—";
 
     $("routeResult").innerHTML =
-      `<p>📏 Distance totale : <strong>${distanceKm} km</strong></p>` +
-      `<p>⏱️ Durée estimée : <strong>${durationMin} minutes</strong></p>`;
+      "<p>📏 Distance totale : <strong>" +
+      distanceKm +
+      " km</strong></p>" +
+      "<p>⏱️ Durée estimée : <strong>" +
+      durationMin +
+      " minutes</strong></p>";
 
     const btn = $("exportPdfBtn");
     if (btn) btn.style.display = "inline-block";
@@ -767,9 +819,7 @@
       container.innerHTML = `
         <h2 style="color:#004080; margin-top:0;">🧭 Itinéraire LOGIKART</h2>
         <p><strong>Départ :</strong> ${escapeHtml(start)}</p>
-        ${extras
-          .map((d, i) => `<p><strong>Étape ${i + 1} :</strong> ${escapeHtml(d)}</p>`)
-          .join("")}
+        ${extras.map((d, i) => `<p><strong>Étape ${i + 1} :</strong> ${escapeHtml(d)}</p>`).join("")}
         <p><strong>Arrivée :</strong> ${escapeHtml(end)}</p>
         <div style="margin-top:10px;">${escapeHtml(distanceText).replace(/\n/g, "<br>")}</div>
       `;
@@ -798,10 +848,10 @@
     });
   }
 
-  // ================= INIT =================
+  // ==== INIT ================================================================
   function init() {
     if (typeof L === "undefined") {
-      console.error("Leaflet non chargé (L is undefined).");
+      console.error("Leaflet non chargé (L is undefined). Vérifie Leaflet dans index.html.");
       return;
     }
 
@@ -822,7 +872,7 @@
 
   document.addEventListener("DOMContentLoaded", init);
 
-  // ================= EXPOSE GLOBALS (onclick HTML) =================
+  // ==== EXPOSE GLOBALS (onclick dans index.html) ============================
   window.addProvider = showProviderForm;
   window.hideForm = hideProviderForm;
   window.searchNearest = searchNearest;
