@@ -93,11 +93,13 @@ const fireSync = {
       await ensureAuth();                                // attend l’anonyme si activée
       await db.collection("prestataires").limit(1).get(); // test permission/connexion
       this.online = true;
+      updateSyncBadge();
       await this.pullAll();                               // récupère tout dans le local
       this.startRealtime();                               // écoute temps réel (diff)
       console.log("[Sync] Firestore actif");
     } catch (e) {
       this.online = false;
+      updateSyncBadge();
       console.warn("[Sync] Mode local uniquement :", e?.message || e);
     }
   },
@@ -1065,8 +1067,22 @@ document.addEventListener("DOMContentLoaded", async () => {
     dropdown.style.display = (dropdown.style.display === "none" || !dropdown.style.display) ? "block" : "none";
   });
   document.addEventListener("click", () => { if (dropdown) dropdown.style.display = "none"; });
+  updateSyncBadge();
 });
+function updateSyncBadge() {
+  const badge = document.getElementById("syncStatus");
+  if (!badge) return;
 
+  if (fireSync.online) {
+    badge.textContent = "ONLINE";
+    badge.classList.remove("offline");
+    badge.classList.add("online");
+  } else {
+    badge.textContent = "LOCAL";
+    badge.classList.remove("online");
+    badge.classList.add("offline");
+  }
+}
 function toggleProviderList() {
   const list = document.getElementById("providerList");
   if (!list) return;
@@ -1090,6 +1106,20 @@ async function backfillMissingCoords() {
     }
   }
   if (updated) console.log(`[Backfill] ${updated} prestataires enrichis en lat/lon`);
+}
+function updateSyncBadge() {
+  const badge = document.getElementById("syncStatus");
+  if (!badge) return;
+
+  if (fireSync.online) {
+    badge.textContent = "ONLINE";
+    badge.classList.remove("offline");
+    badge.classList.add("online");
+  } else {
+    badge.textContent = "LOCAL";
+    badge.classList.remove("online");
+    badge.classList.add("offline");
+  }
 }
 
 // ----------------- Expose au scope global -----------------
