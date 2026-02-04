@@ -126,5 +126,92 @@ input, textarea, select {
 header h1 {
   color: #ffffff;
 }
+/* ===== Header SaaS (LOGIKART) ===== */
+.app-header{
+  position: sticky;
+  top: 0;
+  z-index: 3000;
+  background: linear-gradient(180deg, #003a73, #004080);
+  border-bottom: 1px solid rgba(255,255,255,.10);
+  box-shadow: 0 8px 24px rgba(0,0,0,.08);
+}
+
+.app-header__inner{
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.brand{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.brand__logo{
+  height: 44px;
+  width: 44px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.12);
+  padding: 6px;
+  object-fit: contain;
+}
+
+.brand__text{
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.brand__title{
+  color: #fff;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: .2px;
+  line-height: 1.1;
+}
+
+.brand__subtitle{
+  color: rgba(255,255,255,.82);
+  font-size: 13px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: min(62vw, 520px);
+}
+
+.app-header__right{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.badge{
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(255,255,255,.14);
+  border: 1px solid rgba(255,255,255,.18);
+  backdrop-filter: blur(8px);
+}
+
+/* Mobile : compacter */
+@media (max-width: 560px){
+  .brand__subtitle{ display:none; }
+  .brand__logo{ height:40px; width:40px; border-radius:10px; }
+  .app-header__inner{ padding: 12px 12px; }
+}
 
 
