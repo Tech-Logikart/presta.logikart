@@ -65,10 +65,22 @@
 
 <body>
   <!-- En-tête (logo + titre) -->
-  <header>
-    <img src="logikart-logo.png" alt="LOGIKART" style="height:60px;" />
-    <h1 style="margin:0;">LOGIKART - Réseau de prestataires informatiques</h1>
-  </header>
+  
+  <header class="app-header">
+  <div class="app-header__inner">
+    <div class="brand">
+      <img src="logikart-logo.png" alt="LOGIKART" class="brand__logo" />
+      <div class="brand__text">
+        <div class="brand__title">LOGIKART</div>
+        <div class="brand__subtitle">Réseau de prestataires informatiques</div>
+      </div>
+    </div>
+
+    <div class="app-header__right">
+      <span class="badge">v1.0</span>
+    </div>
+  </div>
+</header>
 
   <!-- Burger (en dehors du header pour éviter les stacking contexts) -->
   <div id="burgerMenu" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false" aria-controls="menuDropdown">☰</div>
