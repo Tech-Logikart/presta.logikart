@@ -67,7 +67,7 @@ function fitMapToAllMarkers() {
   }
 }
 
-let editingIndex = null;
+let editingKey = null; // id Firestore OU clé email|phone
 
 // Filtre certains rejets (extensions Chrome bavardes)
 window.addEventListener('unhandledrejection', (event) => {
@@ -416,7 +416,15 @@ async function handleFormSubmit(event) {
     travelFees: document.getElementById("travelFees").value,
     totalCost: document.getElementById("totalCost").value
   };
-
+  if (editingKey) {
+  const list = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+  const existing = findProviderByKey(list, editingKey);
+  if (existing) {
+    provider.id = existing.id;
+    provider.lat = existing.lat;
+    provider.lon = existing.lon;
+  }
+}
   try {
     const saved = await fireSync.upsert(provider);        // géocode ici si besoin + stocke lat/lon
     geocodeAndAddToMap(saved, { pan: true, open: true }); // animation locale
@@ -428,6 +436,7 @@ async function handleFormSubmit(event) {
     console.error("Erreur enregistrement:", e);
     alert("Impossible d’enregistrer (vérifie Auth anonyme & règles Firestore).");
   }
+  editingKey = null;
 }
 
 // ----------------- Recherche de prestataire proche -----------------
@@ -516,8 +525,9 @@ function updateProviderListNow() {
       📞 ${p.phone || '—'}<br>
       💰 Tarif total HT : ${p.totalCost || "N/A"}${(p.lat!=null&&p.lon!=null)?'':' <em style="color:#a00">(géocodage manquant)</em>'}<br>
       <div style="display:flex; gap:8px; margin-top:6px;">
-        <button onclick="editProvider(${i})">✏️ Modifier</button>
-        <button onclick="deleteProvider(${i})">🗑️ Supprimer</button>
+        <button onclick='editProviderByKey(${JSON.stringify(p.id || keyOf(p))})'>✏️ Modifier</button>
+        <button onclick='deleteProviderByKey(${JSON.stringify(p.id || keyOf(p))})'>🗑️ Supprimer</button>
+
       </div>
       <hr>
     `;
@@ -528,9 +538,16 @@ function updateProviderListNow() {
 const updateProviderList = debounce(updateProviderListNow, 120);
 window.updateProviderList = updateProviderList; // si jamais appelé depuis HTML inline
 
-function editProvider(index) {
+function findProviderByKey(list, k) {
+  let p = list.find(x => x.id && x.id === k);
+  if (!p) p = list.find(x => keyOf(x) === k);
+  return p || null;
+}
+
+function editProviderByKey(k) {
   const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
-  const p = providers[index];
+  const p = findProviderByKey(providers, k);
+  if (!p) return alert("Prestataire introuvable.");
 
   document.getElementById("companyName").value = p.companyName || "";
   document.getElementById("contactName").value = p.contactName || "";
@@ -543,23 +560,30 @@ function editProvider(index) {
   document.getElementById("totalCost").value = p.totalCost || "";
 
   if (typeof updateTotal === "function") updateTotal();
-  editingIndex = index;
+
+  editingKey = p.id || keyOf(p);
   addProvider();
 }
 
-window.deleteProvider = async function(index) {
+async function deleteProviderByKey(k) {
   const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+  const toDelete = findProviderByKey(providers, k);
+  if (!toDelete) return alert("Prestataire introuvable.");
+
   if (!confirm("Confirmer la suppression ?")) return;
-  const toDelete = providers[index];
+
   try {
     await fireSync.remove(toDelete);
     removeMarkerByKey(markerKey(toDelete));
-    updateProviderList(); // débouncé
+    updateProviderList();
   } catch (e) {
     console.error("Erreur suppression :", e);
-    alert("Suppression impossible (vérifie les règles Firestore).");
+    alert("Suppression impossible.");
   }
-};
+}
+
+window.editProviderByKey = editProviderByKey;
+window.deleteProviderByKey = deleteProviderByKey;
 
 // ----------------- Export JSON/CSV -----------------
 function exportProviders(format = "json") {
