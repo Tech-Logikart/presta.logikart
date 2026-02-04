@@ -123,3 +123,8 @@ input, textarea, select {
   background: var(--accent);
   color: var(--primary-dark);
 }
+header h1 {
+  color: #ffffff;
+}
+
+
