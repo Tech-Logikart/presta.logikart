@@ -212,6 +212,18 @@ header h1 {
   .brand__logo{ height:40px; width:40px; border-radius:10px; }
   .app-header__inner{ padding: 12px 12px; }
 }
+.badge.online{
+  background: rgba(46, 204, 113, .25);
+  border-color: rgba(46, 204, 113, .6);
+  color: #eafff3;
+}
+
+.badge.offline{
+  background: rgba(241, 196, 15, .25);
+  border-color: rgba(241, 196, 15, .6);
+  color: #fff8e1;
+}
+
 
 
 
