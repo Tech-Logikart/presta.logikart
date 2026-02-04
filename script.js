@@ -498,8 +498,14 @@ function updateProviderListNow() {
   if (!container) return;
 
   container.innerHTML = "";
-  const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
-
+  const providers = (JSON.parse(localStorage.getItem(LS_KEY)) || [])
+  .sort((a, b) =>
+    (a.companyName || "").localeCompare(
+      (b.companyName || ""),
+      "fr",
+      { sensitivity: "base" }
+    )
+  );
   providers.forEach((p, i) => {
     const div = document.createElement("div");
     div.className = "provider-entry";
