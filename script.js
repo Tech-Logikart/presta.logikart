@@ -16,12 +16,8 @@ function debounce(fn, delay = 120) {
 
 // ---------- Marqueurs performants (index + layer + cluster optionnel) ----------
 let markerIndex = new Map(); // key -> { marker, data }
-let markerLayer;
-if (L.markerClusterGroup) {
-  markerLayer = L.markerClusterGroup({ chunkedLoading: true });
-} else {
-  markerLayer = L.layerGroup();
-}
+// ---------- Marqueurs SANS clustering ----------
+let markerLayer = L.layerGroup();
 map.addLayer(markerLayer);
 
 function markerKey(p) {
