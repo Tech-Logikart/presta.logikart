@@ -139,7 +139,7 @@ header h1 {
 .app-header__inner{
   max-width: 1200px;
   margin: 0 auto;
-  padding: 14px 16px;
+  padding: 10px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -154,11 +154,10 @@ header h1 {
 }
 
 .brand__logo{
-  height: 44px;
-  width: 44px;
-  border-radius: 12px;
-  background: rgba(255,255,255,.12);
-  padding: 6px;
+  height: 38px;
+  width: 38px;
+  border-radius: 10px;
+  padding: 5px;
   object-fit: contain;
 }
 
@@ -213,5 +212,6 @@ header h1 {
   .brand__logo{ height:40px; width:40px; border-radius:10px; }
   .app-header__inner{ padding: 12px 12px; }
 }
+
 
 
