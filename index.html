@@ -159,9 +159,10 @@
         <input type="text" name="technician" list="technicianList" required />
         <datalist id="technicianList"></datalist>
         <label>Travail à faire :</label>
-        <textarea name="todo" rows="6" required></textarea>
-        <label>Travail effectué :</label>
-        <textarea name="done" rows="10" required></textarea>
+        <div id="taskList"></div>
+        <button type="button" onclick="addTask()">+ Ajouter une tâche</button>
+        <label>Commentaire :</label>
+        <textarea name="done"></textarea>
         <label>Heure d’arrivée :</label>
         <input type="time" name="start" required />
         <label>Heure de départ :</label>
