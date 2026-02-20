@@ -901,13 +901,17 @@ function buildReportHTML(values) {
     <div style="min-height:20px;">${values.tech || ""}</div>
   </div>
 
-  <!-- Travail à faire -->
-  <div style="border:1px solid #cfcfcf; border-radius:8px; padding:12px;">
-    <div style="font-weight:700; margin-bottom:8px;">Travail à faire</div>
-    <div style="border:1px solid #e1e1e1; border-radius:6px; padding:10px; min-height:90px; white-space:pre-wrap;">
-      ${values.todo || ""}
+<div style="border:1px solid #cfcfcf; border-radius:8px; padding:12px;">
+  <div style="font-weight:700; margin-bottom:8px;">Travail à faire</div>
+  ${values.tasks.map(task => `
+    <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+      <div>${task.text || ""}</div>
+      <div style="border:1px solid #000; width:14px; height:14px; text-align:center;">
+        ${task.done ? "✓" : ""}
+      </div>
     </div>
-  </div>
+  `).join("")}
+</div>
 
   <!-- Travail effectué -->
   <div style="border:1px solid #cfcfcf; border-radius:8px; padding:12px;">
@@ -1012,13 +1016,21 @@ function printReport() {
 async function generatePDF() {
   const form = document.getElementById("reportForm");
   const get = (id) => form.querySelector(`[name="${id}"]`) || form.querySelector(`#${id}`);
-
+  
+  const tasks = Array.from(document.querySelectorAll(".taskInput")).map((input, i) => {
+  const checked = document.querySelectorAll(".taskCheck")[i].checked;
+  return {
+    text: input.value,
+    done: checked
+  };
+});
+  
   const values = {
     ticket: get("ticket")?.value,
     date: get("interventionDate")?.value,
     site: get("siteAddress")?.value,
     tech: get("technician")?.value,
-    todo: get("todo")?.value,
+    tasks: tasks,
     done: get("done")?.value,
     start: get("start")?.value,
     end: get("end")?.value,
@@ -1199,6 +1211,45 @@ function updateTechnicianCounter() {
 
   counterEl.textContent = String(count);
 }
+// ----------------- Tâches "Travail à faire" -----------------
+function addTask(value = "", checked = false) {
+  const container = document.getElementById("taskList");
+  if (!container) return;
+
+  const row = document.createElement("div");
+  row.style.display = "flex";
+  row.style.gap = "10px";
+  row.style.marginBottom = "8px";
+  row.style.alignItems = "center";
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "taskInput";
+  input.placeholder = "Tâche à effectuer";
+  input.value = value;
+  input.style.flex = "1";
+
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.className = "taskCheck";
+  checkbox.checked = checked;
+
+  row.appendChild(input);
+  row.appendChild(checkbox);
+  container.appendChild(row);
+}
+
+// Ajoute 1 ligne par défaut quand on ouvre le formulaire Rapport
+const _openReportForm = window.openReportForm;
+window.openReportForm = function () {
+  if (typeof _openReportForm === "function") _openReportForm();
+
+  const container = document.getElementById("taskList");
+  if (container) {
+    container.innerHTML = ""; // reset
+    addTask();                // 1ère tâche vide
+  }
+};
 // ----------------- Expose au scope global -----------------
 window.searchNearest = searchNearest;
 window.addProvider = addProvider;
@@ -1222,6 +1273,8 @@ window.exportProviders = exportProviders;
 window.openImportModal = openImportModal;
 window.closeImportModal = closeImportModal;
 window.handleImport = handleImport;
+
+window.addTask = addTask;
 
 // --------------------------------------------------------------------
 // Production GitHub Pages : ajoute dans Firebase > Auth > Domaines autorisés
