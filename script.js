@@ -865,14 +865,16 @@ function exportItineraryToPDF() {
 function buildReportHTML(values) {
   return `
     <div style="width:100%; display:flex; justify-content:center; background:#fff;">
-      <div style="
-        width: 794px;              /* ~A4 @96dpi */
-        box-sizing: border-box;
-        font-family: Arial, sans-serif;
-        padding: 20px;
-        color: #000;
-        margin: 0 auto;
-      ">
+     <div style="
+  width: 794px;                /* Largeur A4 */
+  margin: 40px auto;           /* Centre + marge verticale */
+  padding: 40px;               /* Marges internes */
+  box-sizing: border-box;
+  background: #ffffff;
+  font-family: Arial, sans-serif;
+  color: #000;
+  border-radius: 10px;
+">
         <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #004080; padding-bottom:10px;">
           <img src="logikart-logo.png" alt="LOGIKART" style="height:50px;">
           <h2 style="text-align:center; flex-grow:1; color:#004080; margin:0;">Rapport d’intervention</h2>
@@ -1063,7 +1065,7 @@ async function generatePDF() {
 
   try {
     await html2pdf().set({
-      margin: 0.5,
+      margin: 0,
       filename: "rapport_intervention_LOGIKART.pdf",
       image: { type: "jpeg", quality: 0.98 },
       html2canvas: {
