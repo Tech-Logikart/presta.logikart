@@ -913,9 +913,9 @@ function buildReportHTML(values) {
   `).join("")}
 </div>
 
-  <!-- Travail effectué -->
+  <!-- Commentaires -->
   <div style="border:1px solid #cfcfcf; border-radius:8px; padding:12px;">
-    <div style="font-weight:700; margin-bottom:8px;">Travail effectué</div>
+    <div style="font-weight:700; margin-bottom:8px;">Commentaires</div>
     <div style="border:1px solid #e1e1e1; border-radius:6px; padding:10px; min-height:110px; white-space:pre-wrap;">
       ${values.done || ""}
     </div>
