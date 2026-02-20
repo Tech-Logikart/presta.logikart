@@ -1217,25 +1217,13 @@ function addTask(value = "", checked = false) {
   if (!container) return;
 
   const row = document.createElement("div");
-  row.style.display = "flex";
-  row.style.gap = "10px";
-  row.style.marginBottom = "8px";
-  row.style.alignItems = "center";
+  row.className = "task-row";
 
-  const input = document.createElement("input");
-  input.type = "text";
-  input.className = "taskInput";
-  input.placeholder = "Tâche à effectuer";
-  input.value = value;
-  input.style.flex = "1";
+  row.innerHTML = `
+    <input type="text" class="taskInput" placeholder="Tâche à effectuer" value="${String(value).replace(/"/g, '&quot;')}">
+    <input type="checkbox" class="taskCheck" ${checked ? "checked" : ""}>
+  `;
 
-  const checkbox = document.createElement("input");
-  checkbox.type = "checkbox";
-  checkbox.className = "taskCheck";
-  checkbox.checked = checked;
-
-  row.appendChild(input);
-  row.appendChild(checkbox);
   container.appendChild(row);
 }
 
