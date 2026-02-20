@@ -879,41 +879,69 @@ function buildReportHTML(values) {
           <div style="text-align:right; font-size:12px;">${values.date || ""}</div>
         </div>
 
-        <div style="margin-top:20px;">
-          <p><strong>Ticket :</strong> ${values.ticket || ""}</p>
-          <p><strong>Adresse du site :</strong> ${values.site || ""}</p>
-          <p><strong>Nom du technicien :</strong> ${values.tech || ""}</p>
-        </div>
+<div style="margin-top:20px; display:grid; gap:12px;">
 
-        <div style="margin-top:20px;">
-          <h4>Travail à faire</h4>
-          <div style="border:1px solid #ccc; padding:10px; min-height:60px;">${values.todo || ""}</div>
-        </div>
+  <!-- Ticket -->
+  <div style="border:1px solid #cfcfcf; border-radius:8px; padding:12px;">
+    <div style="font-weight:700; margin-bottom:6px;">Ticket :</div>
+    <div style="min-height:20px;">${values.ticket || ""}</div>
+  </div>
 
-        <div style="margin-top:20px;">
-          <h4>Travail effectué</h4>
-          <div style="border:1px solid #ccc; padding:10px; min-height:80px;">${values.done || ""}</div>
-        </div>
+  <!-- Adresse -->
+  <div style="border:1px solid #cfcfcf; border-radius:8px; padding:12px;">
+    <div style="font-weight:700; margin-bottom:6px;">Adresse du site :</div>
+    <div style="min-height:20px;">${values.site || ""}</div>
+  </div>
 
-        <div style="margin-top:20px;">
-          <p><strong>Heure d’arrivée :</strong> ${values.start || ""}</p>
-          <p><strong>Heure de départ :</strong> ${values.end || ""}</p>
-        </div>
+  <!-- Technicien -->
+  <div style="border:1px solid #cfcfcf; border-radius:8px; padding:12px;">
+    <div style="font-weight:700; margin-bottom:6px;">Nom du technicien :</div>
+    <div style="min-height:20px;">${values.tech || ""}</div>
+  </div>
 
-        <div style="margin-top:20px; display:flex; justify-content:space-between; gap:16px;">
-          <div style="width:48%;">
-            <p><strong>Signature du technicien :</strong></p>
-            <div style="border:1px solid #ccc; height:60px;"></div>
-            <p style="text-align:center; margin-top:5px;">${values.signTech || ""}</p>
-          </div>
-          <div style="width:48%;">
-            <p><strong>Signature du client :</strong></p>
-            <div style="border:1px solid #ccc; height:60px;"></div>
-            <p style="text-align:center; margin-top:5px;">${values.signClient || ""}</p>
-          </div>
-        </div>
-      </div>
+  <!-- Travail à faire -->
+  <div style="border:1px solid #cfcfcf; border-radius:8px; padding:12px;">
+    <div style="font-weight:700; margin-bottom:8px;">Travail à faire</div>
+    <div style="border:1px solid #e1e1e1; border-radius:6px; padding:10px; min-height:90px; white-space:pre-wrap;">
+      ${values.todo || ""}
     </div>
+  </div>
+
+  <!-- Travail effectué -->
+  <div style="border:1px solid #cfcfcf; border-radius:8px; padding:12px;">
+    <div style="font-weight:700; margin-bottom:8px;">Travail effectué</div>
+    <div style="border:1px solid #e1e1e1; border-radius:6px; padding:10px; min-height:110px; white-space:pre-wrap;">
+      ${values.done || ""}
+    </div>
+  </div>
+
+  <!-- Heures -->
+  <div style="border:1px solid #cfcfcf; border-radius:8px; padding:12px; display:flex; gap:16px; justify-content:space-between;">
+    <div style="width:48%;">
+      <div style="font-weight:700; margin-bottom:6px;">Heure d’arrivée :</div>
+      <div style="min-height:20px;">${values.start || ""}</div>
+    </div>
+    <div style="width:48%;">
+      <div style="font-weight:700; margin-bottom:6px;">Heure de départ :</div>
+      <div style="min-height:20px;">${values.end || ""}</div>
+    </div>
+  </div>
+
+  <!-- Signatures -->
+  <div style="border:1px solid #cfcfcf; border-radius:8px; padding:12px; display:flex; gap:16px; justify-content:space-between;">
+    <div style="width:48%;">
+      <div style="font-weight:700; margin-bottom:6px;">Signature du technicien :</div>
+      <div style="border:1px solid #e1e1e1; border-radius:6px; height:70px;"></div>
+      <div style="text-align:center; margin-top:6px; font-size:12px;">${values.signTech || ""}</div>
+    </div>
+    <div style="width:48%;">
+      <div style="font-weight:700; margin-bottom:6px;">Signature du client :</div>
+      <div style="border:1px solid #e1e1e1; border-radius:6px; height:70px;"></div>
+      <div style="text-align:center; margin-top:6px; font-size:12px;">${values.signClient || ""}</div>
+    </div>
+  </div>
+
+</div>
   `;
 }
 
