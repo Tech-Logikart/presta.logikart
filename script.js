@@ -993,39 +993,60 @@ function generatePDF() {
     return;
   }
 
-  // conteneur visible (offscreen) pour html2canvas/html2pdf
+  // ✅ Conteneur RENDU (dans le viewport) mais INVISIBLE
   const temp = document.createElement("div");
   temp.style.position = "fixed";
-  temp.style.left = "-10000px"; // hors écran mais rendu
+  temp.style.left = "0";
   temp.style.top = "0";
-  temp.style.width = "794px";   // ~ A4 @96dpi
+  temp.style.width = "794px";      // ~A4 @96dpi
   temp.style.background = "#fff";
+  temp.style.opacity = "0";        // invisible mais rendu
+  temp.style.pointerEvents = "none";
+  temp.style.zIndex = "-1";        // derrière tout
   temp.innerHTML = buildReportHTML(values);
   document.body.appendChild(temp);
 
-  // attendre les images (logo) avant rendu
+  // Attendre les images (logo) avant rendu
   const imgs = Array.from(temp.querySelectorAll("img"));
-  const waitImgs = Promise.all(imgs.map(img => img.complete ? Promise.resolve() :
-    new Promise(res => img.onload = img.onerror = res)
-  ));
+  const waitImgs = Promise.all(
+    imgs.map(img => img.complete ? Promise.resolve() : new Promise(res => (img.onload = img.onerror = res)))
+  );
+
+  // Forcer position scroll (évite canvas blanc sur certains navigateurs)
+  const prevScrollY = window.scrollY;
+  const prevScrollX = window.scrollX;
+  window.scrollTo(0, 0);
 
   waitImgs.then(() => {
-    html2pdf().set({
-      margin: 0.5,
-      filename: 'rapport_intervention_LOGIKART.pdf',
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, allowTaint: true },
-      jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
-    }).from(temp).save()
-      .then(() => {
-        temp.remove();
-        // form.reset(); closeReportForm(); // optionnel
+    return html2pdf()
+      .set({
+        margin: 0.5,
+        filename: "rapport_intervention_LOGIKART.pdf",
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: "#ffffff",
+          scrollX: 0,
+          scrollY: 0,
+          // Ces 2 lignes aident aussi quand le navigateur “crop”
+          windowWidth: temp.scrollWidth,
+          windowHeight: temp.scrollHeight
+        },
+        jsPDF: { unit: "in", format: "a4", orientation: "portrait" }
       })
-      .catch(err => {
-        console.error("[PDF] erreur", err);
-        temp.remove();
-        printReport(); // fallback impression si canvas/images bloqués
-      });
+      .from(temp)
+      .save();
+  })
+  .catch(err => {
+    console.error("[PDF] erreur (canvas blanc / blocage navigateur)", err);
+    // fallback: impression navigateur
+    printReport();
+  })
+  .finally(() => {
+    temp.remove();
+    window.scrollTo(prevScrollX, prevScrollY);
   });
 }
 
