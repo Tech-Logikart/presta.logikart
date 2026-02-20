@@ -195,6 +195,7 @@ const fireSync = {
       const list = [];
       snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
       localStorage.setItem(LS_KEY, JSON.stringify(list));
+      updateTechnicianCounter();
 
       // recentre seulement s'il y a de nouvelles entrées
       if (pendingFit.added > 0) fitMapToAllMarkers();
@@ -531,6 +532,8 @@ function updateProviderListNow() {
     `;
     container.appendChild(div);
   });
+  
+  updateTechnicianCounter();
 }
 // --- version débouncée utilisée partout ---
 const updateProviderList = debounce(updateProviderListNow, 120);
@@ -1052,7 +1055,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Sync Firestore si possible
   await fireSync.boot();
-
+  updateTechnicianCounter();
+  
   // Backfill asynchrone des fiches sans coords (une seule fois)
   backfillMissingCoords(); // best effort, non bloquant
 
@@ -1119,10 +1123,22 @@ function updateSyncBadge() {
 }
 // ----------------- Compteur techniciens -----------------
 function updateTechnicianCounter() {
-  const providers = JSON.parse(localStorage.getItem("providers")) || [];
-  const count = providers.length;
   const counterEl = document.getElementById("techCount");
-  if (counterEl) counterEl.textContent = count;
+  if (!counterEl) return;
+
+  // 1) Essaye via localStorage (source "officielle")
+  let list = [];
+  try {
+    list = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+  } catch (e) {
+    list = [];
+  }
+
+  // 2) Fallback : si localStorage vide mais des marqueurs existent, on compte les marqueurs
+  const countFromMarkers = (typeof markerIndex !== "undefined" && markerIndex?.size) ? markerIndex.size : 0;
+  const count = (list.length > 0) ? list.length : countFromMarkers;
+
+  counterEl.textContent = String(count);
 }
 // ----------------- Expose au scope global -----------------
 window.searchNearest = searchNearest;
