@@ -160,9 +160,14 @@
         <datalist id="technicianList"></datalist>
         <label>Travail à faire :</label>
         <div id="taskList"></div>
-        <button type="button" onclick="addTask()">+ Ajouter une tâche</button>
-        <label>Commentaire :</label>
-        <textarea name="done"></textarea>
+
+        <button type="button" onclick="addTask()" style="margin:10px 0 12px 0;">
+        ➕ Ajouter une tâche
+        </button>
+
+        <label style="display:block; margin-top:6px;">Commentaire :</label>
+        <textarea name="done" rows="10" required></textarea>
+        
         <label>Heure d’arrivée :</label>
         <input type="time" name="start" required />
         <label>Heure de départ :</label>
