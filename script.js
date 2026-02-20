@@ -1117,7 +1117,13 @@ function updateSyncBadge() {
     badge.classList.add("offline");
   }
 }
-
+// ----------------- Compteur techniciens -----------------
+function updateTechnicianCounter() {
+  const providers = JSON.parse(localStorage.getItem("providers")) || [];
+  const count = providers.length;
+  const counterEl = document.getElementById("techCount");
+  if (counterEl) counterEl.textContent = count;
+}
 // ----------------- Expose au scope global -----------------
 window.searchNearest = searchNearest;
 window.addProvider = addProvider;
