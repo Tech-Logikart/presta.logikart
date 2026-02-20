@@ -1222,7 +1222,20 @@ function addTask(value = "", checked = false) {
   row.innerHTML = `
     <input type="text" class="taskInput" placeholder="Tâche à effectuer" value="${String(value).replace(/"/g, '&quot;')}">
     <input type="checkbox" class="taskCheck" ${checked ? "checked" : ""}>
+    <button type="button" class="taskDelete" title="Supprimer la tâche">🗑️</button>
   `;
+
+  // suppression ligne
+  row.querySelector(".taskDelete").addEventListener("click", () => {
+  const rows = container.querySelectorAll(".task-row");
+  if (rows.length <= 1) {
+    // vide la seule ligne restante
+    row.querySelector(".taskInput").value = "";
+    row.querySelector(".taskCheck").checked = false;
+    return;
+  }
+  row.remove();
+});
 
   container.appendChild(row);
 }
