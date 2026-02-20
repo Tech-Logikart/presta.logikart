@@ -970,9 +970,10 @@ function printReport() {
   });
 }
 
-function generatePDF() {
+async function generatePDF() {
   const form = document.getElementById("reportForm");
-  const get = id => form.querySelector(`[name="${id}"]`) || form.querySelector(`#${id}`);
+  const get = (id) => form.querySelector(`[name="${id}"]`) || form.querySelector(`#${id}`);
+
   const values = {
     ticket: get("ticket")?.value,
     date: get("interventionDate")?.value,
@@ -986,68 +987,66 @@ function generatePDF() {
     signClient: get("signClient")?.value
   };
 
-  // Si html2pdf n’est pas présent → fallback impression
   if (typeof html2pdf === "undefined") {
     console.warn("[PDF] html2pdf non trouvé, fallback impression");
     printReport();
     return;
   }
 
-  // ✅ Conteneur RENDU (dans le viewport) mais INVISIBLE
+  // ✅ Overlay “capturable” (dans le viewport), quasi invisible pour l’utilisateur
+  const overlay = document.createElement("div");
+  overlay.style.position = "fixed";
+  overlay.style.inset = "0";
+  overlay.style.zIndex = "999999";      // AU-DESSUS de tout
+  overlay.style.background = "transparent";
+  overlay.style.opacity = "0.01";       // 0.01 => rendu OK, invisible à l’œil
+  overlay.style.pointerEvents = "none"; // ne bloque pas les clics
+
   const temp = document.createElement("div");
-  temp.style.position = "fixed";
-  temp.style.left = "0";
-  temp.style.top = "0";
-  temp.style.width = "794px";      // ~A4 @96dpi
+  temp.style.width = "794px";       // ~A4 @96dpi
+  temp.style.margin = "0 auto";
   temp.style.background = "#fff";
-  temp.style.opacity = "0";        // invisible mais rendu
-  temp.style.pointerEvents = "none";
-  temp.style.zIndex = "-1";        // derrière tout
   temp.innerHTML = buildReportHTML(values);
-  document.body.appendChild(temp);
 
-  // Attendre les images (logo) avant rendu
+  // ✅ évite les soucis CORS sur l’image (même si locale)
+  temp.querySelectorAll("img").forEach(img => img.setAttribute("crossorigin", "anonymous"));
+
+  overlay.appendChild(temp);
+  document.body.appendChild(overlay);
+
+  // ✅ attendre images
   const imgs = Array.from(temp.querySelectorAll("img"));
-  const waitImgs = Promise.all(
-    imgs.map(img => img.complete ? Promise.resolve() : new Promise(res => (img.onload = img.onerror = res)))
-  );
+  await Promise.all(imgs.map(img => img.complete ? Promise.resolve() : new Promise(res => img.onload = img.onerror = res)));
 
-  // Forcer position scroll (évite canvas blanc sur certains navigateurs)
-  const prevScrollY = window.scrollY;
-  const prevScrollX = window.scrollX;
+  // ✅ attendre 2 frames (sinon capture blanche sur certains navigateurs)
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+  const prevX = window.scrollX, prevY = window.scrollY;
   window.scrollTo(0, 0);
 
-  waitImgs.then(() => {
-    return html2pdf()
-      .set({
-        margin: 0.5,
-        filename: "rapport_intervention_LOGIKART.pdf",
-        image: { type: "jpeg", quality: 0.98 },
-        html2canvas: {
-          scale: 2,
-          useCORS: true,
-          allowTaint: true,
-          backgroundColor: "#ffffff",
-          scrollX: 0,
-          scrollY: 0,
-          // Ces 2 lignes aident aussi quand le navigateur “crop”
-          windowWidth: temp.scrollWidth,
-          windowHeight: temp.scrollHeight
-        },
-        jsPDF: { unit: "in", format: "a4", orientation: "portrait" }
-      })
-      .from(temp)
-      .save();
-  })
-  .catch(err => {
-    console.error("[PDF] erreur (canvas blanc / blocage navigateur)", err);
-    // fallback: impression navigateur
+  try {
+    await html2pdf().set({
+      margin: 0.5,
+      filename: "rapport_intervention_LOGIKART.pdf",
+      image: { type: "jpeg", quality: 0.98 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        allowTaint: false,            // IMPORTANT : évite canvas “tainted” => pdf blanc
+        backgroundColor: "#ffffff",
+        scrollX: 0,
+        scrollY: 0
+      },
+      jsPDF: { unit: "in", format: "a4", orientation: "portrait" }
+    }).from(temp).save();
+  } catch (err) {
+    console.error("[PDF] Toujours blanc / erreur capture", err);
+    // fallback: impression (au moins tu peux "Enregistrer en PDF")
     printReport();
-  })
-  .finally(() => {
-    temp.remove();
-    window.scrollTo(prevScrollX, prevScrollY);
-  });
+  } finally {
+    overlay.remove();
+    window.scrollTo(prevX, prevY);
+  }
 }
 
 function populateTechnicianSuggestions() {
