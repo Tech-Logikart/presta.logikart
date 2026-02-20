@@ -864,44 +864,53 @@ function exportItineraryToPDF() {
 // ----------------- Rapport d’intervention (impression & PDF robustes) -----------------
 function buildReportHTML(values) {
   return `
-    <div style="font-family: Arial, sans-serif; padding: 20px; color: #000;">
-      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #004080; padding-bottom: 10px;">
-        <img src="logikart-logo.png" alt="LOGIKART" style="height: 50px;">
-        <h2 style="text-align: center; flex-grow: 1; color: #004080;">Rapport d’intervention</h2>
-        <div style="text-align: right; font-size: 12px;">${values.date || ""}</div>
-      </div>
-
-      <div style="margin-top: 20px;">
-        <p><strong>Ticket :</strong> ${values.ticket || ""}</p>
-        <p><strong>Adresse du site :</strong> ${values.site || ""}</p>
-        <p><strong>Nom du technicien :</strong> ${values.tech || ""}</p>
-      </div>
-
-      <div style="margin-top: 20px;">
-        <h4>Travail à faire</h4>
-        <div style="border: 1px solid #ccc; padding: 10px; min-height: 60px;">${values.todo || ""}</div>
-      </div>
-
-      <div style="margin-top: 20px;">
-        <h4>Travail effectué</h4>
-        <div style="border: 1px solid #ccc; padding: 10px; min-height: 80px;">${values.done || ""}</div>
-      </div>
-
-      <div style="margin-top: 20px;">
-        <p><strong>Heure d’arrivée :</strong> ${values.start || ""}</p>
-        <p><strong>Heure de départ :</strong> ${values.end || ""}</p>
-      </div>
-
-      <div style="margin-top: 20px; display: flex; justify-content: space-between;">
-        <div style="width: 48%;">
-          <p><strong>Signature du technicien :</strong></p>
-          <div style="border: 1px solid #ccc; height: 60px;"></div>
-          <p style="text-align: center; margin-top: 5px;">${values.signTech || ""}</p>
+    <div style="width:100%; display:flex; justify-content:center; background:#fff;">
+      <div style="
+        width: 794px;              /* ~A4 @96dpi */
+        box-sizing: border-box;
+        font-family: Arial, sans-serif;
+        padding: 20px;
+        color: #000;
+        margin: 0 auto;
+      ">
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #004080; padding-bottom:10px;">
+          <img src="logikart-logo.png" alt="LOGIKART" style="height:50px;">
+          <h2 style="text-align:center; flex-grow:1; color:#004080; margin:0;">Rapport d’intervention</h2>
+          <div style="text-align:right; font-size:12px;">${values.date || ""}</div>
         </div>
-        <div style="width: 48%;">
-          <p><strong>Signature du client :</strong></p>
-          <div style="border: 1px solid #ccc; height: 60px;"></div>
-          <p style="text-align: center; margin-top: 5px;">${values.signClient || ""}</p>
+
+        <div style="margin-top:20px;">
+          <p><strong>Ticket :</strong> ${values.ticket || ""}</p>
+          <p><strong>Adresse du site :</strong> ${values.site || ""}</p>
+          <p><strong>Nom du technicien :</strong> ${values.tech || ""}</p>
+        </div>
+
+        <div style="margin-top:20px;">
+          <h4>Travail à faire</h4>
+          <div style="border:1px solid #ccc; padding:10px; min-height:60px;">${values.todo || ""}</div>
+        </div>
+
+        <div style="margin-top:20px;">
+          <h4>Travail effectué</h4>
+          <div style="border:1px solid #ccc; padding:10px; min-height:80px;">${values.done || ""}</div>
+        </div>
+
+        <div style="margin-top:20px;">
+          <p><strong>Heure d’arrivée :</strong> ${values.start || ""}</p>
+          <p><strong>Heure de départ :</strong> ${values.end || ""}</p>
+        </div>
+
+        <div style="margin-top:20px; display:flex; justify-content:space-between; gap:16px;">
+          <div style="width:48%;">
+            <p><strong>Signature du technicien :</strong></p>
+            <div style="border:1px solid #ccc; height:60px;"></div>
+            <p style="text-align:center; margin-top:5px;">${values.signTech || ""}</p>
+          </div>
+          <div style="width:48%;">
+            <p><strong>Signature du client :</strong></p>
+            <div style="border:1px solid #ccc; height:60px;"></div>
+            <p style="text-align:center; margin-top:5px;">${values.signClient || ""}</p>
+          </div>
         </div>
       </div>
     </div>
