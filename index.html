@@ -99,10 +99,22 @@
   </div>
 
   <!-- Barre d’action -->
-  <section style="padding:10px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
-    <input type="text" id="cityInput" placeholder="Ville" style="width:260px; padding:8px; border:1px solid #ccc; border-radius:6px;" />
-    <button onclick="searchNearest()">Rechercher</button>
+  <section class="search-bar">
+    <select id="countrySelect" aria-label="Pays">
+      <option value="">Pays</option>
+      <option value="France">France</option>
+      <option value="Belgique">Belgique</option>
+      <option value="Suisse">Suisse</option>
+      <option value="Luxembourg">Luxembourg</option>
+      <option value="Espagne">Espagne</option>
+      <option value="Italie">Italie</option>
+      <option value="Allemagne">Allemagne</option>
+      <option value="Royaume-Uni">Royaume-Uni</option>
+    </select>
+    <input type="text" id="cityInput" placeholder="Ville ou adresse" />
+    <button onclick="handleSearch()">Rechercher</button>
     <button onclick="addProvider()">Ajouter un prestataire</button>
+    <div id="searchResult" class="search-result" aria-live="polite"></div>
   </section>
 
   <!-- Carte -->
