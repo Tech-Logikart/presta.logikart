@@ -1204,3 +1204,209 @@ body {
     top: 236px;
   }
 }
+
+/* ===== Compact header adjustment ===== */
+.app-header {
+  padding-top: 10px;
+  padding-bottom: 10px;
+  background: linear-gradient(180deg, rgba(5, 54, 103, 0.94), rgba(7, 63, 120, 0.88));
+  backdrop-filter: blur(6px);
+}
+
+.app-header__inner {
+  padding: 0 112px;
+}
+
+.brand {
+  gap: 10px;
+}
+
+.brand__logo {
+  width: 42px;
+  height: 42px;
+  padding: 4px;
+}
+
+.brand__title {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
+.brand__subtitle {
+  font-size: 12px;
+  line-height: 1.15;
+  opacity: 0.85;
+}
+
+.brand__counter {
+  font-size: 11px;
+  line-height: 1.15;
+  opacity: 0.72;
+}
+
+#techCount {
+  font-size: 12px;
+}
+
+.badge {
+  min-height: 24px;
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+#burgerMenu {
+  top: 16px;
+  width: 36px;
+  height: 36px;
+  font-size: 18px;
+}
+
+#menuDropdown {
+  top: 56px;
+}
+
+.app-header .search-bar {
+  margin-top: 10px;
+  padding: 10px 12px;
+  gap: 10px;
+  border-radius: 10px;
+}
+
+.app-header .search-bar select,
+.app-header .search-bar input,
+.app-header .search-bar button {
+  height: 40px;
+  font-size: 14px;
+}
+
+.app-header .search-bar select,
+.app-header .search-bar input {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.app-header .search-bar button {
+  min-height: 40px;
+  padding: 8px 14px;
+}
+
+.search-result {
+  min-height: 14px;
+  font-size: 12px;
+}
+
+.leaflet-top {
+  top: 132px;
+}
+
+#providerList {
+  top: 136px;
+}
+
+@media (max-width: 900px) {
+  .app-header {
+    padding-top: 9px;
+    padding-bottom: 10px;
+  }
+
+  .app-header__inner {
+    padding: 0 96px 0 8px;
+  }
+
+  .brand__logo {
+    width: 38px;
+    height: 38px;
+  }
+
+  .brand__title {
+    font-size: 20px;
+  }
+
+  .brand__subtitle {
+    font-size: 11px;
+  }
+
+  .app-header .search-bar {
+    margin-top: 9px;
+    padding: 9px 10px;
+    gap: 8px;
+  }
+
+  #burgerMenu {
+    top: 13px;
+  }
+
+  #menuDropdown {
+    top: 52px;
+  }
+
+  .leaflet-top {
+    top: 164px;
+  }
+
+  #providerList {
+    top: 166px;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-header {
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .app-header__inner {
+    padding: 0 44px;
+  }
+
+  .brand__logo {
+    width: 34px;
+    height: 34px;
+  }
+
+  .brand__title {
+    font-size: 18px;
+  }
+
+  .brand__subtitle {
+    font-size: 10px;
+  }
+
+  .brand__counter {
+    font-size: 10px;
+  }
+
+  #burgerMenu {
+    top: 10px;
+    width: 34px;
+    height: 34px;
+  }
+
+  #menuDropdown {
+    top: 50px;
+  }
+
+  .app-header .search-bar {
+    margin-top: 8px;
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .app-header .search-bar select,
+  .app-header .search-bar input,
+  .app-header .search-bar button {
+    height: 38px;
+    min-height: 38px;
+    font-size: 14px;
+  }
+
+  .leaflet-top {
+    top: 232px;
+  }
+
+  #providerList {
+    top: 214px;
+  }
+}
