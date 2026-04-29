@@ -43,6 +43,60 @@ input, textarea, select {
   margin-bottom: 10px;
 }
 
+.search-bar {
+  padding: 12px;
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  align-items: stretch;
+  flex-wrap: wrap;
+  background: #fff;
+}
+
+.search-bar select,
+.search-bar input,
+.search-bar button {
+  height: 48px;
+  margin-bottom: 0;
+}
+
+.search-bar select {
+  width: 180px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.search-bar input {
+  width: min(360px, 100%);
+}
+
+.search-bar button {
+  width: auto;
+  white-space: nowrap;
+}
+
+.search-result {
+  flex-basis: 100%;
+  max-width: 940px;
+  min-height: 20px;
+  color: var(--primary-dark);
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+}
+
+@media (max-width: 700px) {
+  .search-bar {
+    justify-content: stretch;
+  }
+
+  .search-bar select,
+  .search-bar input,
+  .search-bar button {
+    width: 100%;
+  }
+}
+
 .modal-content {
   background: white;
   padding: 20px;
