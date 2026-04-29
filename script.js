@@ -351,41 +351,124 @@ function buildQueries(addr) {
    .filter((v, i, a) => v && a.indexOf(v) === i);
 }
 
+function createMarkerForZone(p, area) {
+  const key = markerKey(p) + "|" + area;
+
+  const existing = markerIndex.get(key);
+  if (existing) {
+    markerLayer.removeLayer(existing.marker);
+    markerIndex.delete(key);
+  }
+
+  const m = L.marker([p.lat, p.lon]).bindPopup(
+    `<strong>${p.companyName || ""}</strong><br>
+    ${p.firstName || ""} ${p.contactName || ""}<br>
+    ${p.email || ""}<br>
+    ${p.phone || ""}<br>
+    <em>Zone : ${area || ""}</em>`
+  );
+
+  markerLayer.addLayer(m);
+  markerIndex.set(key, { marker: m, data: p });
+  return m;
+}
+
 // ----------------- Géocodage -> Marker (utilise lat/lon si présents) -----------------
 async function geocodeAndAddToMap(provider, opts = { pan: false, open: false }) {
   try {
     if (!provider) return;
 
-    let lat = provider.lat != null ? parseFloat(provider.lat) : NaN;
-    let lon = provider.lon != null ? parseFloat(provider.lon) : NaN;
+    const areas = Array.isArray(provider.serviceAreas) && provider.serviceAreas.length
+      ? provider.serviceAreas
+      : [provider.address];
 
-    if (isNaN(lat) || isNaN(lon)) {
-      if (!provider.address) return;
-      const queries = buildQueries(provider.address);
+    let firstMarker = null;
+
+    for (const area of areas) {
+      let lat = null;
+      let lon = null;
+
+      const queries = buildQueries(area);
       let result = null;
+
       for (const q of queries) {
         const data = await fetchNominatim(q);
-        if (data && data.length) { result = data[0]; break; }
+        if (data && data.length) {
+          result = data[0];
+          break;
+        }
       }
+
       if (!result) {
-        console.warn("Géocodage introuvable pour:", provider.address);
-        const fallbackCity = /([A-Za-zÀ-ÿ'\- ]+),?\s*(France|Spain|Italy|Czechia|United Kingdom|England|Italia|Tchéquie|Espagne)/i.exec(provider.address);
-        const cityQ = fallbackCity ? normalizeIntlAddress(`${fallbackCity[1].trim()}, ${fallbackCity[2]}`) : 'France';
-        const cityTry = await fetchNominatim(cityQ);
-        if (!cityTry.length) return;
-        result = cityTry[0];
+        console.warn("Géocodage introuvable pour zone :", area);
+        continue;
       }
+
       lat = parseFloat(result.lat);
       lon = parseFloat(result.lon);
-      provider.lat = lat; provider.lon = lon; // enrichit en mémoire
+
+      const markerProvider = {
+        ...provider,
+        lat,
+        lon,
+        address: area,
+        markerKeyExtra: area
+      };
+
+      const m = createMarkerForZone(markerProvider, area);
+      if (!firstMarker) firstMarker = m;
     }
 
-    const m = upsertMarker({ ...provider, lat, lon });
-    if (opts.pan) map.setView([lat, lon], Math.max(map.getZoom(), 15));
-    if (opts.open) m.openPopup();
+    if (opts.pan && firstMarker) {
+      map.setView(firstMarker.getLatLng(), Math.max(map.getZoom(), 11));
+    }
+
+    if (opts.open && firstMarker) {
+      firstMarker.openPopup();
+    }
   } catch (e) {
-    console.error('[geocodeAndAddToMap error]', e);
+    console.error("[geocodeAndAddToMap error]", e);
   }
+}
+// ----------------- Zones d’intervention -----------------
+function addServiceArea(value = "") {
+  const container = document.getElementById("serviceAreas");
+  if (!container) return;
+
+  const row = document.createElement("div");
+  row.className = "service-area-row";
+
+  row.innerHTML = `
+    <input type="text" class="service-area-input" placeholder="Ville ou département" value="${String(value).replace(/"/g, "&quot;")}">
+    <button type="button" onclick="removeServiceArea(this)">❌</button>
+  `;
+
+  container.appendChild(row);
+}
+
+function removeServiceArea(button) {
+  const row = button.closest(".service-area-row");
+  if (row) row.remove();
+}
+
+function getServiceAreas() {
+  return Array.from(document.querySelectorAll(".service-area-input"))
+    .map(input => input.value.trim())
+    .filter(Boolean);
+}
+
+function setServiceAreas(areas = []) {
+  const container = document.getElementById("serviceAreas");
+  if (!container) return;
+
+  container.innerHTML = "";
+
+  if (!areas.length) {
+    addServiceArea();
+    return;
+  }
+
+  areas.forEach(area => addServiceArea(area));
 }
 
 // ----------------- Formulaire prestataire -----------------
@@ -398,6 +481,7 @@ function hideForm() {
   const form = document.getElementById("providerForm");
   const modal = document.getElementById("providerFormSection");
   if (form) form.reset();
+  setServiceAreas([]);
   if (modal) modal.style.display = "none";
   editingIndex = null;
 }
@@ -412,6 +496,7 @@ async function handleFormSubmit(event) {
     contactName: document.getElementById("contactName").value,
     firstName: document.getElementById("firstName").value,
     address: document.getElementById("address").value,
+    serviceAreas: getServiceAreas(),
     email: document.getElementById("email").value,
     phone: document.getElementById("phone").value,
     rate: document.getElementById("rate").value,
@@ -520,12 +605,18 @@ function updateProviderListNow() {
   providers.forEach((p, i) => {
     const div = document.createElement("div");
     div.className = "provider-entry";
-    div.innerHTML = `
-      <strong>${p.companyName || '—'}</strong><br>
-      👤 ${p.contactName || '—'} ${p.firstName ? `(${p.firstName})` : ""}<br>
-      📧 ${p.email || '—'}<br>
-      📞 ${p.phone || '—'}<br>
-      💰 Tarif total HT : ${p.totalCost || "N/A"}${(p.lat!=null&&p.lon!=null)?'':' <em style="color:#a00">(géocodage manquant)</em>'}<br>
+ const zonesText =
+  Array.isArray(p.serviceAreas) && p.serviceAreas.length
+    ? p.serviceAreas.join(", ")
+    : (p.address || "—");
+
+div.innerHTML = `
+  <strong>${p.companyName || '—'}</strong><br>
+  👤 ${p.contactName || '—'} ${p.firstName ? `(${p.firstName})` : ""}<br>
+  📍 Zones : ${zonesText}<br>
+  📧 ${p.email || '—'}<br>
+  📞 ${p.phone || '—'}<br>
+  💰 Tarif total HT : ${p.totalCost || "N/A"}${(p.lat!=null&&p.lon!=null)?'':' <em style="color:#a00">(géocodage manquant)</em>'}<br>
       <div style="display:flex; gap:8px; margin-top:6px;">
         <button onclick='editProviderByKey(${JSON.stringify(p.id || keyOf(p))})'>✏️ Modifier</button>
         <button onclick='deleteProviderByKey(${JSON.stringify(p.id || keyOf(p))})'>🗑️ Supprimer</button>
@@ -562,7 +653,8 @@ function editProviderByKey(k) {
   document.getElementById("rate").value = p.rate || "";
   document.getElementById("travelFees").value = p.travelFees || "";
   document.getElementById("totalCost").value = p.totalCost || "";
-
+  
+  setServiceAreas(p.serviceAreas || []);
   if (typeof updateTotal === "function") updateTotal();
 
   editingKey = p.id || keyOf(p);
@@ -1279,7 +1371,7 @@ window.closeReportForm = closeReportForm;
 window.generatePDF = generatePDF;
 window.printReport = printReport;
 
-window.editProvider = editProvider;
+window.editProvider = editProviderByKey;
 window.deleteProvider = window.deleteProvider; // déjà défini
 window.exportProviders = exportProviders;
 window.openImportModal = openImportModal;
@@ -1287,6 +1379,9 @@ window.closeImportModal = closeImportModal;
 window.handleImport = handleImport;
 
 window.addTask = addTask;
+
+window.addServiceArea = addServiceArea;
+window.removeServiceArea = removeServiceArea;
 
 // --------------------------------------------------------------------
 // Production GitHub Pages : ajoute dans Firebase > Auth > Domaines autorisés
