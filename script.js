@@ -1,9 +1,17 @@
 // ======================= LOGIKART / script.js =======================
 // Carte Leaflet — vue Europe par défaut
 const map = L.map('map').setView([54, 15], 4);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© OpenStreetMap contributors'
+const baseMapLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+  subdomains: 'abcd',
+  maxZoom: 20
 }).addTo(map);
+let cartoFallbackApplied = false;
+baseMapLayer.on('tileerror', () => {
+  if (cartoFallbackApplied) return;
+  cartoFallbackApplied = true;
+  baseMapLayer.setUrl('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png');
+});
 
 // --- utilitaire debounce (retarde l'appel tant que ça "bouge") ---
 function debounce(fn, delay = 120) {
@@ -1557,6 +1565,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   document.addEventListener("click", () => { if (dropdown) dropdown.style.display = "none"; });
   updateSyncBadge();
+  requestAnimationFrame(() => map.invalidateSize());
+  window.addEventListener("resize", debounce(() => map.invalidateSize(), 120));
 });
 function updateSyncBadge() {
   const badge = document.getElementById("syncStatus");
