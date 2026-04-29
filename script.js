@@ -24,6 +24,18 @@ function markerKey(p) {
   return p.id || (String(p.email || '').toLowerCase() + '|' + String(p.phone || ''));
 }
 
+function normalizeAreaLabel(area) {
+  return String(area || "").replace(/\s+/g, " ").trim();
+}
+
+function areaKey(area) {
+  return normalizeAreaLabel(area).toLowerCase();
+}
+
+function zoneMarkerKey(p, area) {
+  return `${markerKey(p)}|zone|${areaKey(area)}`;
+}
+
 function normalizeCoords(p) {
   return { ...p, lat: parseFloat(p.lat), lon: parseFloat(p.lon) };
 }
@@ -57,6 +69,18 @@ function removeMarkerByKey(key) {
     markerLayer.removeLayer(entry.marker);
     markerIndex.delete(key);
   }
+}
+function removeProviderMarkers(p) {
+  const baseKey = markerKey(p);
+  const zonePrefix = `${baseKey}|zone|`;
+  Array.from(markerIndex.keys()).forEach(key => {
+    if (key === baseKey || key.startsWith(zonePrefix)) removeMarkerByKey(key);
+  });
+}
+function hasProviderMarkers(p) {
+  const baseKey = markerKey(p);
+  const zonePrefix = `${baseKey}|zone|`;
+  return Array.from(markerIndex.keys()).some(key => key === baseKey || key.startsWith(zonePrefix));
 }
 function clearMarkers() {
   markerLayer.clearLayers();
@@ -142,13 +166,16 @@ const fireSync = {
 
     // Chargement initial en lots rapides (sans géocoder)
     clearMarkers();
-    const providers = list
-      .map(p => ({ ...p, lat: parseFloat(p.lat), lon: parseFloat(p.lon) }))
-      .filter(p => !isNaN(p.lat) && !isNaN(p.lon));
+    const providers = list.filter(p => hasValidCoords(p) || getProviderAreas(p).length);
     let i = 0, CHUNK = 80;
     function addChunk() {
       const end = Math.min(i + CHUNK, providers.length);
-      for (; i < end; i++) upsertMarker(providers[i]);
+      for (; i < end; i++) {
+        const rendered = renderProviderMarkers(providers[i]);
+        if (!rendered && getProviderAreas(providers[i]).length) {
+          geocodeAndAddToMap(providers[i]);
+        }
+      }
       if (i < providers.length) {
         requestAnimationFrame(addChunk);
       } else {
@@ -170,6 +197,7 @@ const fireSync = {
         p.lon = parseFloat(data[0].lon);
       }
     }
+    await ensureServiceAreaCoords(p);
 
     // 2) write Firestore puis état mémoire
     if (this.online) {
@@ -206,20 +234,22 @@ const fireSync = {
       snap.docChanges().forEach(change => {
         const p = { id: change.doc.id, ...change.doc.data() };
 
-        const key = markerKey(p);
-        const alreadyOnMap = markerIndex.has(key);
+        const alreadyOnMap = hasProviderMarkers(p);
         if (change.type === "added") {
-          if (hasValidCoords(p)) {
-            if (!alreadyOnMap) {
-              upsertMarker(normalizeCoords(p));
-              pendingFit.added++;
-            }
+          if (!alreadyOnMap) {
+            const rendered = renderProviderMarkers(p);
+            if (rendered) pendingFit.added++;
+            else if (getProviderAreas(p).length) geocodeAndAddToMap(p).then(() => fitMapToAllMarkers());
           }
         } else if (change.type === "modified") {
-          if (hasValidCoords(p)) upsertMarker(normalizeCoords(p));
-          else removeMarkerByKey(key);
+          if (hasValidCoords(p) || getProviderAreas(p).length) {
+            const rendered = renderProviderMarkers(p);
+            if (!rendered) geocodeAndAddToMap(p).then(() => fitMapToAllMarkers());
+          } else {
+            removeProviderMarkers(p);
+          }
         } else if (change.type === "removed") {
-          removeMarkerByKey(key);
+          removeProviderMarkers(p);
         }
       });
 
@@ -374,8 +404,105 @@ function buildQueries(addr) {
    .filter((v, i, a) => v && a.indexOf(v) === i);
 }
 
+function getProviderAreas(provider) {
+  const areas = Array.isArray(provider.serviceAreas) && provider.serviceAreas.length
+    ? provider.serviceAreas
+    : [provider.address];
+
+  const seen = new Set();
+  return areas
+    .map(normalizeAreaLabel)
+    .filter(area => {
+      const key = areaKey(area);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function getStoredAreaCoord(provider, area) {
+  const coords = Array.isArray(provider.serviceAreaCoords) ? provider.serviceAreaCoords : [];
+  const found = coords.find(item => areaKey(item.area) === areaKey(area));
+  if (!found || !hasValidCoords(found)) return null;
+  return { area: normalizeAreaLabel(found.area || area), lat: parseFloat(found.lat), lon: parseFloat(found.lon) };
+}
+
+async function resolveAreaCoord(area) {
+  const queries = buildQueries(area);
+  for (const q of queries) {
+    const data = await fetchNominatim(q);
+    if (data && data.length) {
+      const lat = parseFloat(data[0].lat);
+      const lon = parseFloat(data[0].lon);
+      if (!isNaN(lat) && !isNaN(lon)) return { area: normalizeAreaLabel(area), lat, lon };
+    }
+  }
+  return null;
+}
+
+async function ensureServiceAreaCoords(provider) {
+  const areas = getProviderAreas(provider);
+  const coords = [];
+  let changed = false;
+
+  for (const area of areas) {
+    const stored = getStoredAreaCoord(provider, area);
+    if (stored) {
+      coords.push({ ...stored, area });
+      continue;
+    }
+
+    const resolved = await resolveAreaCoord(area);
+    if (resolved) {
+      coords.push(resolved);
+      changed = true;
+    } else {
+      console.warn("Géocodage introuvable pour zone :", area);
+    }
+  }
+
+  if (coords.length) {
+    provider.serviceAreaCoords = coords;
+    if (!hasValidCoords(provider)) {
+      provider.lat = coords[0].lat;
+      provider.lon = coords[0].lon;
+    }
+  }
+
+  return { provider, changed };
+}
+
+function renderProviderMarkers(provider, opts = {}) {
+  removeProviderMarkers(provider);
+
+  const areas = getProviderAreas(provider);
+  if (areas.length) {
+    let firstMarker = null;
+    areas.forEach(area => {
+      const coord = getStoredAreaCoord(provider, area);
+      if (!coord) return;
+      const markerProvider = { ...provider, lat: coord.lat, lon: coord.lon, address: area };
+      const marker = createMarkerForZone(markerProvider, area);
+      if (!firstMarker) firstMarker = marker;
+    });
+
+    if (opts.pan && firstMarker) map.setView(firstMarker.getLatLng(), Math.max(map.getZoom(), 11));
+    if (opts.open && firstMarker) firstMarker.openPopup();
+    return firstMarker;
+  }
+
+  if (hasValidCoords(provider)) {
+    const marker = upsertMarker(normalizeCoords(provider));
+    if (opts.pan) map.setView(marker.getLatLng(), Math.max(map.getZoom(), 11));
+    if (opts.open) marker.openPopup();
+    return marker;
+  }
+
+  return null;
+}
+
 function createMarkerForZone(p, area) {
-  const key = markerKey(p) + "|" + area;
+  const key = zoneMarkerKey(p, area);
 
   const existing = markerIndex.get(key);
   if (existing) {
@@ -401,54 +528,19 @@ async function geocodeAndAddToMap(provider, opts = { pan: false, open: false }) 
   try {
     if (!provider) return;
 
-    const areas = Array.isArray(provider.serviceAreas) && provider.serviceAreas.length
-      ? provider.serviceAreas
-      : [provider.address];
+    const { provider: enriched, changed } = await ensureServiceAreaCoords(provider);
+    upsertProviderState(enriched);
 
-    let firstMarker = null;
-
-    for (const area of areas) {
-      let lat = null;
-      let lon = null;
-
-      const queries = buildQueries(area);
-      let result = null;
-
-      for (const q of queries) {
-        const data = await fetchNominatim(q);
-        if (data && data.length) {
-          result = data[0];
-          break;
-        }
-      }
-
-      if (!result) {
-        console.warn("Géocodage introuvable pour zone :", area);
-        continue;
-      }
-
-      lat = parseFloat(result.lat);
-      lon = parseFloat(result.lon);
-
-      const markerProvider = {
-        ...provider,
-        lat,
-        lon,
-        address: area,
-        markerKeyExtra: area
-      };
-
-      const m = createMarkerForZone(markerProvider, area);
-      if (!firstMarker) firstMarker = m;
+    if (changed && fireSync.online && enriched.id) {
+      await db.collection("prestataires").doc(enriched.id).set({
+        serviceAreaCoords: enriched.serviceAreaCoords || [],
+        lat: enriched.lat ?? null,
+        lon: enriched.lon ?? null
+      }, { merge: true });
     }
 
-    if (opts.pan && firstMarker) {
-      map.setView(firstMarker.getLatLng(), Math.max(map.getZoom(), 11));
-    }
-
-    if (opts.open && firstMarker) {
-      firstMarker.openPopup();
-    }
+    const marker = renderProviderMarkers(enriched, opts);
+    if (marker) fitMapToAllMarkers();
   } catch (e) {
     console.error("[geocodeAndAddToMap error]", e);
   }
@@ -602,25 +694,19 @@ function loadProvidersFromState() {
     return;
   }
 
-  const missingCoords = [];
+  const missingZoneCoords = [];
 
   // 1) Affichage immédiat des prestataires déjà géocodés
   providers.forEach(p => {
-    const lat = parseFloat(p.lat);
-    const lon = parseFloat(p.lon);
-
-    if (!isNaN(lat) && !isNaN(lon)) {
-      upsertMarker({ ...p, lat, lon });
-    } else {
-      missingCoords.push(p);
-    }
+    const rendered = renderProviderMarkers(p);
+    if (!rendered && getProviderAreas(p).length) missingZoneCoords.push(p);
   });
 
   fitMapToAllMarkers();
   updateProviderListNow();
 
-  // 2) Géocodage lent uniquement pour ceux qui n'ont pas encore de coordonnées
-  missingCoords.forEach(p => {
+  // 2) Géocodage lent uniquement pour les zones qui n'ont pas encore de coordonnées
+  missingZoneCoords.forEach(p => {
     geocodeAndAddToMap(p);
   });
 }
@@ -707,7 +793,7 @@ async function deleteProviderByKey(k) {
 
   try {
     await fireSync.remove(toDelete);
-    removeMarkerByKey(markerKey(toDelete));
+    removeProviderMarkers(toDelete);
     updateProviderList();
   } catch (e) {
     console.error("Erreur suppression :", e);
@@ -1299,21 +1385,23 @@ function toggleProviderList() {
 
 // ----------------- Backfill coords manquantes (asynchrone) -----------------
 async function backfillMissingCoords() {
+  if (!fireSync.online) return;
   const list = getProviders();
   let updated = 0;
   for (const p of list) {
-    const has = p.lat != null && p.lon != null && !isNaN(p.lat) && !isNaN(p.lon);
-    if (!has && p.address) {
-      const data = await fetchNominatim(p.address);
-      if (data && data.length) {
-        p.lat = parseFloat(data[0].lat);
-        p.lon = parseFloat(data[0].lon);
-        await fireSync.upsert(p); // merge Firestore + état mémoire
-        updated++;
-      }
+    const before = JSON.stringify(p.serviceAreaCoords || []);
+    const { provider: enriched } = await ensureServiceAreaCoords(p);
+    const after = JSON.stringify(enriched.serviceAreaCoords || []);
+    if (before !== after || !hasValidCoords(p)) {
+      await fireSync.upsert(enriched); // merge Firestore + état mémoire
+      renderProviderMarkers(enriched);
+      updated++;
     }
   }
-  if (updated) console.log(`[Backfill] ${updated} prestataires enrichis en lat/lon`);
+  if (updated) {
+    fitMapToAllMarkers();
+    console.log(`[Backfill] ${updated} prestataires enrichis en coordonnées de zones`);
+  }
 }
 function updateSyncBadge() {
   const badge = document.getElementById("syncStatus");
