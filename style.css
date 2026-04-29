@@ -646,3 +646,309 @@ input[type="checkbox"] {
   }
 }
 
+/* ===== Map First overlay refresh ===== */
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: #dce8f2;
+}
+
+.app-header {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  right: 16px;
+  z-index: 3600;
+  background: rgba(7, 35, 67, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 12px;
+  box-shadow: 0 18px 42px rgba(5, 20, 36, 0.2);
+  backdrop-filter: blur(12px);
+}
+
+.app-header__inner {
+  max-width: none;
+  min-height: 58px;
+  padding: 8px 58px 8px 12px;
+}
+
+.brand__logo {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.2);
+}
+
+.brand__title {
+  font-size: 22px;
+}
+
+.brand__subtitle {
+  font-size: 12px;
+  max-width: 42vw;
+}
+
+.brand__counter {
+  font-size: 11px;
+}
+
+.badge {
+  min-height: 30px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+#burgerMenu {
+  top: 26px;
+  right: 28px;
+  z-index: 3700;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(10px);
+}
+
+#menuDropdown {
+  top: 74px;
+  right: 28px;
+  z-index: 3700;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
+}
+
+.app-shell {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  margin: 0;
+  pointer-events: none;
+}
+
+.map-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  pointer-events: auto;
+}
+
+#map {
+  width: 100vw;
+  height: 100vh;
+  min-height: 100vh;
+  border-radius: 0;
+}
+
+.leaflet-control-container {
+  position: relative;
+  z-index: 650;
+}
+
+.leaflet-marker-icon {
+  filter: drop-shadow(0 8px 10px rgba(7, 45, 84, 0.28));
+}
+
+.leaflet-popup-content-wrapper {
+  border-radius: 10px;
+  box-shadow: 0 16px 38px rgba(7, 45, 84, 0.22);
+}
+
+.leaflet-popup-content {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.leaflet-top {
+  top: 88px;
+}
+
+.leaflet-left {
+  left: 18px;
+}
+
+.search-bar {
+  position: fixed;
+  left: 50%;
+  top: 42%;
+  z-index: 3400;
+  width: min(980px, calc(100vw - 32px));
+  margin: 0;
+  padding: 12px;
+  grid-template-columns: minmax(150px, 185px) minmax(260px, 1fr) auto auto;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 14px;
+  box-shadow: 0 22px 60px rgba(6, 25, 45, 0.24);
+  backdrop-filter: blur(14px);
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  animation: searchBarIn 0.32s ease both;
+}
+
+@keyframes searchBarIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 10px));
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+}
+
+.search-bar select,
+.search-bar input {
+  height: 48px;
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(125, 150, 176, 0.55);
+}
+
+.search-bar button {
+  height: 48px;
+}
+
+.field-icon {
+  color: #3c5c7d;
+}
+
+.search-result {
+  padding: 0 4px;
+  color: #073f78;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.68);
+}
+
+#providerList {
+  top: 90px;
+  z-index: 3550;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
+}
+
+.modal,
+.modal-overlay {
+  z-index: 4100;
+  background: rgba(7, 22, 38, 0.54);
+  backdrop-filter: blur(4px);
+}
+
+.modal-content {
+  border-radius: 12px;
+}
+
+@media (max-width: 900px) {
+  .app-header {
+    top: 10px;
+    left: 10px;
+    right: 10px;
+  }
+
+  .app-header__inner {
+    min-height: 56px;
+  }
+
+  .brand__subtitle {
+    display: none;
+  }
+
+  #burgerMenu {
+    top: 19px;
+    right: 20px;
+  }
+
+  #menuDropdown {
+    top: 66px;
+    right: 20px;
+  }
+
+  .search-bar {
+    top: 46%;
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-header {
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    border-radius: 10px;
+  }
+
+  .app-header__inner {
+    min-height: 52px;
+    padding: 7px 54px 7px 9px;
+  }
+
+  .brand__logo {
+    width: 38px;
+    height: 38px;
+  }
+
+  .brand__title {
+    font-size: 18px;
+  }
+
+  .brand__counter,
+  .app-header__right {
+    display: none;
+  }
+
+  #burgerMenu {
+    top: 15px;
+    right: 16px;
+    width: 34px;
+    height: 34px;
+  }
+
+  #menuDropdown {
+    top: 58px;
+    right: 12px;
+    width: min(300px, calc(100vw - 24px));
+  }
+
+  .leaflet-top {
+    top: 70px;
+  }
+
+  .search-bar {
+    top: auto;
+    left: 8px;
+    right: 8px;
+    bottom: 16px;
+    width: auto;
+    grid-template-columns: 1fr;
+    border-radius: 12px;
+    transform: none;
+    animation: searchBarMobileIn 0.32s ease both;
+  }
+
+  @keyframes searchBarMobileIn {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .search-bar select,
+  .search-bar input,
+  .search-bar button {
+    height: 44px;
+  }
+
+  #providerList {
+    top: 68px;
+    right: 8px;
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 92px);
+  }
+}
