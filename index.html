@@ -40,24 +40,7 @@
         <span class="badge" id="syncStatus">CONNEXION</span>
       </div>
     </div>
-  </header>
-
-  <!-- Burger (en dehors du header pour éviter les stacking contexts) -->
-  <div id="burgerMenu" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false" aria-controls="menuDropdown">☰</div>
-  <div id="menuDropdown">
-    <ul>
-      <li onclick="toggleProviderList()">📋 Prestataires</li>
-      <li onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
-      <li onclick="openReportForm()">📝 Imprimer rapport d’intervention</li>
-      <li class="divider"></li>
-      <li onclick="exportProviders('json')">⬇️ Exporter (JSON)</li>
-      <li onclick="exportProviders('csv')">⬇️ Exporter (CSV)</li>
-      <li onclick="openImportModal()">⬆️ Importer</li>
-    </ul>
-  </div>
-
-  <main class="app-shell">
-    <!-- Barre d’action -->
+    <!-- Barre d’action intégrée au header -->
     <section class="search-bar">
       <div class="field-group field-group--country">
         <span class="field-icon">⌾</span>
@@ -81,7 +64,23 @@
       <button class="btn btn-secondary" onclick="addProvider()">Ajouter un prestataire</button>
       <div id="searchResult" class="search-result" aria-live="polite"></div>
     </section>
+  </header>
 
+  <!-- Burger (en dehors du header pour éviter les stacking contexts) -->
+  <div id="burgerMenu" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false" aria-controls="menuDropdown">☰</div>
+  <div id="menuDropdown">
+    <ul>
+      <li onclick="toggleProviderList()">📋 Prestataires</li>
+      <li onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
+      <li onclick="openReportForm()">📝 Imprimer rapport d’intervention</li>
+      <li class="divider"></li>
+      <li onclick="exportProviders('json')">⬇️ Exporter (JSON)</li>
+      <li onclick="exportProviders('csv')">⬇️ Exporter (CSV)</li>
+      <li onclick="openImportModal()">⬆️ Importer</li>
+    </ul>
+  </div>
+
+  <main class="app-shell">
     <!-- Carte -->
     <section class="map-panel">
       <div id="map"></div>
