@@ -575,17 +575,31 @@ function loadProvidersFromLocalStorage() {
   const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
 
   if (!providers.length) {
-    console.log("Aucun prestataire en base");
+    updateProviderListNow();
     return;
   }
 
-  // 🔥 On affiche TOUS les prestataires (même sans coordonnées)
+  const missingCoords = [];
+
+  // 1) Affichage immédiat des prestataires déjà géocodés
   providers.forEach(p => {
-    geocodeAndAddToMap(p); // géocode si nécessaire
+    const lat = parseFloat(p.lat);
+    const lon = parseFloat(p.lon);
+
+    if (!isNaN(lat) && !isNaN(lon)) {
+      upsertMarker({ ...p, lat, lon });
+    } else {
+      missingCoords.push(p);
+    }
   });
 
   fitMapToAllMarkers();
   updateProviderListNow();
+
+  // 2) Géocodage lent uniquement pour ceux qui n'ont pas encore de coordonnées
+  missingCoords.forEach(p => {
+    geocodeAndAddToMap(p);
+  });
 }
 
 // --- rendu immédiat (non débouncé) de la liste ---
@@ -1224,7 +1238,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   updateTechnicianCounter();
   
   // Backfill asynchrone des fiches sans coords (une seule fois)
-  backfillMissingCoords(); // best effort, non bloquant
+  setTimeout(backfillMissingCoords, 3000);
 
   // Toggle menu
   burger?.addEventListener("click", (e) => {
