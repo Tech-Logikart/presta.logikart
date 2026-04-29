@@ -649,7 +649,7 @@ async function handleFormSubmit(event) {
 }
 
 // ----------------- Recherche de prestataire proche -----------------
-function distanceKm(lat1, lon1, lat2, lon2) {
+function calculateDistanceKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const toRad = d => d * Math.PI / 180;
   const dLat = toRad(lat2 - lat1);
@@ -659,6 +659,38 @@ function distanceKm(lat1, lon1, lat2, lon2) {
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
   return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+const distanceKm = calculateDistanceKm;
+
+function countryForGeocode(country) {
+  const countries = {
+    "France": "France",
+    "Belgique": "Belgium",
+    "Suisse": "Switzerland",
+    "Luxembourg": "Luxembourg",
+    "Espagne": "Spain",
+    "Italie": "Italy",
+    "Allemagne": "Germany",
+    "Royaume-Uni": "United Kingdom"
+  };
+  return countries[country] || country;
+}
+
+async function geocodeAddress(address, country) {
+  const cleanAddress = normalizeAreaLabel(address);
+  const cleanCountry = normalizeAreaLabel(country);
+  if (!cleanCountry) throw new Error("country_missing");
+  if (!cleanAddress) throw new Error("address_missing");
+
+  const query = `${cleanAddress}, ${countryForGeocode(cleanCountry)}`;
+  const data = await fetchNominatim(query);
+  if (!data || !data.length) return null;
+
+  const lat = parseFloat(data[0].lat);
+  const lon = parseFloat(data[0].lon);
+  if (isNaN(lat) || isNaN(lon)) return null;
+  return { lat, lon, label: query };
 }
 
 async function getProviderSearchCandidates(provider, searchedCity) {
@@ -707,28 +739,16 @@ async function getProviderSearchCandidates(provider, searchedCity) {
   return candidates;
 }
 
-async function searchNearest() {
-  const city = document.getElementById("cityInput").value.trim();
-  if (!city) return;
-
-  const cityData = await fetchNominatim(/(France|Spain|Italy|Czechia|United Kingdom|England)/i.test(city) ? city : `${city}, France`);
-  if (!cityData.length) { alert("Ville non trouvée."); return; }
-
-  const userLat = parseFloat(cityData[0].lat);
-  const userLon = parseFloat(cityData[0].lon);
-
-  const providers = getProviders();
-
+async function findNearestProvider(searchLat, searchLng, providers, searchedAddress = "") {
   let nearest = null;
   let minDistance = Infinity;
 
   for (const provider of providers) {
-    const candidates = await getProviderSearchCandidates(provider, city);
+    const candidates = await getProviderSearchCandidates(provider, searchedAddress);
     for (const candidate of candidates) {
-      const distance = distanceKm(userLat, userLon, candidate.lat, candidate.lon);
-      const score = candidate.exactAreaMatch ? -1 : distance;
-      if (score < minDistance) {
-        minDistance = score;
+      const distance = calculateDistanceKm(searchLat, searchLng, candidate.lat, candidate.lon);
+      if (distance < minDistance) {
+        minDistance = distance;
         nearest = {
           ...candidate.provider,
           lat: candidate.lat,
@@ -741,16 +761,96 @@ async function searchNearest() {
     }
   }
 
-  if (nearest) {
-    map.setView([nearest.lat, nearest.lon], 12);
-    const areaLine = nearest.matchedArea ? `<br><em>Zone : ${nearest.matchedArea}</em>` : "";
-    L.popup()
-      .setLatLng([nearest.lat, nearest.lon])
-      .setContent(`<strong>${nearest.companyName || '—'}</strong><br>${nearest.contactName || '—'}<br>${nearest.email || '—'}<br>${nearest.phone || '—'}${areaLine}`)
-      .openOn(map);
-  } else {
-    alert("Aucun prestataire trouvé.");
+  return nearest;
+}
+
+function showSearchResult(searchPoint, nearest) {
+  if (window.searchHighlightLayer) {
+    map.removeLayer(window.searchHighlightLayer);
   }
+
+  window.searchHighlightLayer = L.layerGroup().addTo(map);
+  const searchMarker = L.circleMarker([searchPoint.lat, searchPoint.lon], {
+    radius: 8,
+    color: "#d32f2f",
+    weight: 3,
+    fillColor: "#ffffff",
+    fillOpacity: 1
+  }).bindPopup(`<strong>Recherche</strong><br>${searchPoint.label || ""}`);
+
+  const providerHighlight = L.circle([nearest.lat, nearest.lon], {
+    radius: 2500,
+    color: "#1b8a5a",
+    weight: 3,
+    fillColor: "#2ecc71",
+    fillOpacity: 0.18
+  });
+
+  const linkLine = L.polyline(
+    [[searchPoint.lat, searchPoint.lon], [nearest.lat, nearest.lon]],
+    { color: "#1b8a5a", weight: 3, opacity: 0.75, dashArray: "8 8" }
+  );
+
+  window.searchHighlightLayer.addLayer(searchMarker);
+  window.searchHighlightLayer.addLayer(providerHighlight);
+  window.searchHighlightLayer.addLayer(linkLine);
+
+  const bounds = L.latLngBounds([
+    [searchPoint.lat, searchPoint.lon],
+    [nearest.lat, nearest.lon]
+  ]);
+  map.fitBounds(bounds.pad(0.25), { maxZoom: 12 });
+
+  const areaLine = nearest.matchedArea ? `<br><em>Zone : ${nearest.matchedArea}</em>` : "";
+  L.popup()
+    .setLatLng([nearest.lat, nearest.lon])
+    .setContent(`<strong>${nearest.companyName || '—'}</strong><br>${nearest.contactName || '—'}<br>${nearest.email || '—'}<br>${nearest.phone || '—'}${areaLine}`)
+    .openOn(map);
+}
+
+async function handleSearch() {
+  const city = document.getElementById("cityInput").value.trim();
+  const country = document.getElementById("countrySelect")?.value || "";
+  const resultEl = document.getElementById("searchResult");
+  if (resultEl) resultEl.textContent = "";
+
+  if (!country) {
+    alert("Sélectionne un pays.");
+    return;
+  }
+  if (!city) {
+    alert("Saisis une ville ou une adresse.");
+    return;
+  }
+
+  const searchPoint = await geocodeAddress(city, country);
+  if (!searchPoint) {
+    alert("Adresse introuvable.");
+    return;
+  }
+
+  const providers = getProviders();
+  if (!providers.length) {
+    alert("Aucun prestataire disponible.");
+    return;
+  }
+
+  const nearest = await findNearestProvider(searchPoint.lat, searchPoint.lon, providers, city);
+
+  if (nearest) {
+    showSearchResult(searchPoint, nearest);
+    const distanceText = nearest.distanceKm != null ? nearest.distanceKm.toFixed(1) : "N/A";
+    const areaText = nearest.matchedArea || nearest.address || "zone non précisée";
+    if (resultEl) {
+      resultEl.textContent = `Prestataire le plus proche : ${nearest.companyName || "—"} — ${areaText} — ${distanceText} km`;
+    }
+  } else {
+    alert("Aucun prestataire avec coordonnées GPS disponible.");
+  }
+}
+
+async function searchNearest() {
+  return handleSearch();
 }
 
 // ----------------- Chargement & liste -----------------
