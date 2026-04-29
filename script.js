@@ -167,14 +167,11 @@ const fireSync = {
     // Chargement initial en lots rapides (sans géocoder)
     clearMarkers();
     const providers = list.filter(p => hasValidCoords(p) || getProviderAreas(p).length);
-    let i = 0, CHUNK = 80;
+    let i = 0, CHUNK = 1000;
     function addChunk() {
       const end = Math.min(i + CHUNK, providers.length);
       for (; i < end; i++) {
-        const rendered = renderProviderMarkers(providers[i]);
-        if (!rendered && getProviderAreas(providers[i]).length) {
-          geocodeAndAddToMap(providers[i]);
-        }
+        renderProviderMarkers(providers[i], { skipRemove: true });
       }
       if (i < providers.length) {
         requestAnimationFrame(addChunk);
@@ -224,11 +221,18 @@ const fireSync = {
   },
 
   startRealtime() {
+    let firstSnapshot = true;
     db.collection("prestataires").onSnapshot((snap) => {
       const pendingFit = { added: 0 };
       const list = [];
       snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
       setProvidersState(list);
+
+      if (firstSnapshot) {
+        firstSnapshot = false;
+        updateProviderListNow();
+        return;
+      }
 
       // 🔁 Diff incrémental
       snap.docChanges().forEach(change => {
@@ -473,7 +477,7 @@ async function ensureServiceAreaCoords(provider) {
 }
 
 function renderProviderMarkers(provider, opts = {}) {
-  removeProviderMarkers(provider);
+  if (!opts.skipRemove) removeProviderMarkers(provider);
 
   const areas = getProviderAreas(provider);
   if (areas.length) {
@@ -694,21 +698,13 @@ function loadProvidersFromState() {
     return;
   }
 
-  const missingZoneCoords = [];
-
   // 1) Affichage immédiat des prestataires déjà géocodés
   providers.forEach(p => {
-    const rendered = renderProviderMarkers(p);
-    if (!rendered && getProviderAreas(p).length) missingZoneCoords.push(p);
+    renderProviderMarkers(p, { skipRemove: true });
   });
 
   fitMapToAllMarkers();
   updateProviderListNow();
-
-  // 2) Géocodage lent uniquement pour les zones qui n'ont pas encore de coordonnées
-  missingZoneCoords.forEach(p => {
-    geocodeAndAddToMap(p);
-  });
 }
 
 // --- rendu immédiat (non débouncé) de la liste ---
