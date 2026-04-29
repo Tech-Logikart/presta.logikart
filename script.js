@@ -24,6 +24,16 @@ function markerKey(p) {
   return p.id || (String(p.email || '').toLowerCase() + '|' + String(p.phone || ''));
 }
 
+function normalizeCoords(p) {
+  return { ...p, lat: parseFloat(p.lat), lon: parseFloat(p.lon) };
+}
+
+function hasValidCoords(p) {
+  const lat = parseFloat(p?.lat);
+  const lon = parseFloat(p?.lon);
+  return !isNaN(lat) && !isNaN(lon);
+}
+
 function createMarker(p) {
   const m = L.marker([p.lat, p.lon]).bindPopup(
     `<strong>${p.companyName || ""}</strong><br>${p.contactName || ""}<br>${p.email || ""}<br>${p.phone || ""}<br><em>${p.address || ""}</em>`
@@ -77,9 +87,33 @@ window.addEventListener('unhandledrejection', (event) => {
 // ----------------- Auth anonyme (fournie par index.html) -----------------
 async function ensureAuth() { try { if (window.authReady) await window.authReady; } catch {} }
 
-// ----------------- Firestore ⇄ localStorage sync -----------------
-const LS_KEY = "providers";
+// ----------------- Firestore comme source commune -----------------
 const keyOf = (p) => (String(p.email || "").toLowerCase() + "|" + String(p.phone || ""));
+let providersState = [];
+
+function setProvidersState(list) {
+  providersState = Array.isArray(list) ? list : [];
+  updateTechnicianCounter();
+}
+
+function getProviders() {
+  return providersState;
+}
+
+function upsertProviderState(p) {
+  const list = [...providersState];
+  let idx = -1;
+  if (p.id) idx = list.findIndex(x => x.id === p.id);
+  if (idx === -1) idx = list.findIndex(x => keyOf(x) === keyOf(p));
+  if (idx >= 0) list[idx] = { ...list[idx], ...p };
+  else list.push(p);
+  setProvidersState(list);
+  return p;
+}
+
+function removeProviderState(p) {
+  setProvidersState(providersState.filter(x => (p.id ? x.id !== p.id : keyOf(x) !== keyOf(p))));
+}
 
 const fireSync = {
   online: false,
@@ -90,13 +124,13 @@ const fireSync = {
       await db.collection("prestataires").limit(1).get(); // test permission/connexion
       this.online = true;
       updateSyncBadge();
-      await this.pullAll();                               // récupère tout dans le local
+      await this.pullAll();                               // récupère tout depuis Firestore
       this.startRealtime();                               // écoute temps réel (diff)
       console.log("[Sync] Firestore actif");
     } catch (e) {
       this.online = false;
       updateSyncBadge();
-      console.warn("[Sync] Mode local uniquement :", e?.message || e);
+      console.warn("[Sync] Firestore indisponible, aucune sauvegarde navigateur :", e?.message || e);
     }
   },
 
@@ -104,12 +138,14 @@ const fireSync = {
     const snap = await db.collection("prestataires").get();
     const list = [];
     snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
-    localStorage.setItem(LS_KEY, JSON.stringify(list));
+    setProvidersState(list);
 
-    // Chargement initial en lots (sans géocoder)
+    // Chargement initial en lots rapides (sans géocoder)
     clearMarkers();
-    const providers = list.filter(p => p.lat != null && p.lon != null);
-    let i = 0, CHUNK = 200;
+    const providers = list
+      .map(p => ({ ...p, lat: parseFloat(p.lat), lon: parseFloat(p.lon) }))
+      .filter(p => !isNaN(p.lat) && !isNaN(p.lon));
+    let i = 0, CHUNK = 80;
     function addChunk() {
       const end = Math.min(i + CHUNK, providers.length);
       for (; i < end; i++) upsertMarker(providers[i]);
@@ -117,10 +153,10 @@ const fireSync = {
         requestAnimationFrame(addChunk);
       } else {
         fitMapToAllMarkers();
-        updateProviderList(); // débouncé
+        updateProviderListNow();
       }
     }
-    requestAnimationFrame(addChunk);
+    addChunk();
   },
 
   async upsert(p) {
@@ -135,8 +171,7 @@ const fireSync = {
       }
     }
 
-    // 2) write Firestore + miroir local
-    const list = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+    // 2) write Firestore puis état mémoire
     if (this.online) {
       if (p.id) {
         await db.collection("prestataires").doc(p.id).set(p, { merge: true });
@@ -145,67 +180,55 @@ const fireSync = {
         p.id = docRef.id;
       }
     } else {
-      console.debug("[Sync] upsert local-only (offline).");
+      throw new Error("Connexion Firestore indisponible : enregistrement annulé pour éviter une sauvegarde locale navigateur.");
     }
 
-    let idx = -1;
-    if (p.id) idx = list.findIndex(x => x.id === p.id);
-    if (idx === -1) idx = list.findIndex(x => keyOf(x) === keyOf(p));
-    if (idx >= 0) list[idx] = { ...list[idx], ...p };
-    else list.push(p);
-
-    localStorage.setItem(LS_KEY, JSON.stringify(list));
-    return p;
+    return upsertProviderState(p);
   },
 
   async remove(p) {
-    const list = JSON.parse(localStorage.getItem(LS_KEY)) || [];
     if (this.online && p?.id) {
       await db.collection("prestataires").doc(p.id).delete();
     } else {
-      console.debug("[Sync] suppression locale uniquement (offline).");
+      throw new Error("Connexion Firestore indisponible : suppression annulée pour éviter une sauvegarde locale navigateur.");
     }
-    const newList = list.filter(x => (p.id ? x.id !== p.id : keyOf(x) !== keyOf(p)));
-    localStorage.setItem(LS_KEY, JSON.stringify(newList));
+    removeProviderState(p);
   },
 
   startRealtime() {
     db.collection("prestataires").onSnapshot((snap) => {
       const pendingFit = { added: 0 };
+      const list = [];
+      snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+      setProvidersState(list);
 
       // 🔁 Diff incrémental
       snap.docChanges().forEach(change => {
         const p = { id: change.doc.id, ...change.doc.data() };
 
-        // ne pas géocoder ici → on affiche seulement si coords présentes
-        if (p.lat == null || p.lon == null) {
-  geocodeAndAddToMap(p); // 🔥 on force géocodage
-  return;
-}
-
         const key = markerKey(p);
+        const alreadyOnMap = markerIndex.has(key);
         if (change.type === "added") {
-          upsertMarker(p);
-          pendingFit.added++;
+          if (hasValidCoords(p)) {
+            if (!alreadyOnMap) {
+              upsertMarker(normalizeCoords(p));
+              pendingFit.added++;
+            }
+          }
         } else if (change.type === "modified") {
-          upsertMarker(p);
+          if (hasValidCoords(p)) upsertMarker(normalizeCoords(p));
+          else removeMarkerByKey(key);
         } else if (change.type === "removed") {
           removeMarkerByKey(key);
         }
       });
 
-      // miroir local
-      const list = [];
-      snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
-      localStorage.setItem(LS_KEY, JSON.stringify(list));
-      updateTechnicianCounter();
-
       // recentre seulement s'il y a de nouvelles entrées
       if (pendingFit.added > 0) fitMapToAllMarkers();
-      updateProviderList(); // débouncé
+      updateProviderListNow();
     }, (err) => {
       this.online = false;
-      console.warn("[Sync] onSnapshot error -> mode local:", err?.message || err);
+      console.warn("[Sync] onSnapshot error, aucune sauvegarde navigateur :", err?.message || err);
     });
   }
 };
@@ -504,7 +527,7 @@ async function handleFormSubmit(event) {
     totalCost: document.getElementById("totalCost").value
   };
   if (editingKey) {
-  const list = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+  const list = getProviders();
   const existing = findProviderByKey(list, editingKey);
   if (existing) {
     provider.id = existing.id;
@@ -537,7 +560,7 @@ async function searchNearest() {
   const userLat = parseFloat(cityData[0].lat);
   const userLon = parseFloat(cityData[0].lon);
 
-  const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+  const providers = getProviders();
 
   let nearest = null;
   let minDistance = Infinity;
@@ -569,10 +592,10 @@ async function searchNearest() {
 }
 
 // ----------------- Chargement & liste -----------------
-function loadProvidersFromLocalStorage() {
+function loadProvidersFromState() {
   clearMarkers();
 
-  const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+  const providers = getProviders();
 
   if (!providers.length) {
     updateProviderListNow();
@@ -608,7 +631,7 @@ function updateProviderListNow() {
   if (!container) return;
 
   container.innerHTML = "";
-  const providers = (JSON.parse(localStorage.getItem(LS_KEY)) || [])
+  const providers = getProviders()
   .sort((a, b) =>
     (a.companyName || "").localeCompare(
       (b.companyName || ""),
@@ -654,7 +677,7 @@ function findProviderByKey(list, k) {
 }
 
 function editProviderByKey(k) {
-  const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+  const providers = getProviders();
   const p = findProviderByKey(providers, k);
   if (!p) return alert("Prestataire introuvable.");
 
@@ -676,7 +699,7 @@ function editProviderByKey(k) {
 }
 
 async function deleteProviderByKey(k) {
-  const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+  const providers = getProviders();
   const toDelete = findProviderByKey(providers, k);
   if (!toDelete) return alert("Prestataire introuvable.");
 
@@ -697,7 +720,7 @@ window.deleteProviderByKey = deleteProviderByKey;
 
 // ----------------- Export JSON/CSV -----------------
 function exportProviders(format = "json") {
-  const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+  const providers = getProviders();
   if (!providers.length) { alert("Aucun prestataire à exporter."); return; }
 
   const headers = ["id","companyName","contactName","firstName","address","email","phone","rate","travelFees","totalCost","lat","lon"];
@@ -843,7 +866,7 @@ async function handleImport() {
   if (!incoming.length) { alert("Aucune donnée détectée."); return; }
 
   const skipDuplicates = document.getElementById("skipDuplicates")?.checked ?? true;
-  const existing = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+  const existing = getProviders();
   const byKey = new Map(existing.map(p => [keyOf(p), p]));
   const results = { added: 0, updated: 0, skipped: 0, errors: 0 };
 
@@ -867,7 +890,7 @@ async function handleImport() {
     }
   }
 
-  if (fireSync.online) await fireSync.pullAll(); else { clearMarkers(); loadProvidersFromLocalStorage(); }
+  if (fireSync.online) await fireSync.pullAll(); else { clearMarkers(); loadProvidersFromState(); }
 
   // Forcer un rendu immédiat final de la liste (micro-gain)
   updateProviderListNow();
@@ -1213,7 +1236,7 @@ function populateTechnicianSuggestions() {
   const datalist = document.getElementById("technicianList");
   if (!datalist) return;
   datalist.innerHTML = "";
-  const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+  const providers = getProviders();
   providers.forEach(p => {
     const option = document.createElement("option");
     option.value = `${p.firstName || ""} ${p.contactName || ""}`.trim();
@@ -1229,9 +1252,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   const dropdown = document.getElementById("menuDropdown");
   // (supprimé) pas d'override du header pour garder le titre centré
   // (supprimé) pas d'override inline du burger; CSS gère déjà la position
-
-  // Affichage immédiat depuis le local (en lots)
-  loadProvidersFromLocalStorage();
 
   // Sync Firestore si possible
   await fireSync.boot();
@@ -1258,7 +1278,7 @@ function updateSyncBadge() {
     badge.classList.remove("offline");
     badge.classList.add("online");
   } else {
-    badge.textContent = "LOCAL";
+    badge.textContent = "HORS LIGNE";
     badge.classList.remove("online");
     badge.classList.add("offline");
   }
@@ -1279,7 +1299,7 @@ function toggleProviderList() {
 
 // ----------------- Backfill coords manquantes (asynchrone) -----------------
 async function backfillMissingCoords() {
-  const list = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+  const list = getProviders();
   let updated = 0;
   for (const p of list) {
     const has = p.lat != null && p.lon != null && !isNaN(p.lat) && !isNaN(p.lon);
@@ -1288,7 +1308,7 @@ async function backfillMissingCoords() {
       if (data && data.length) {
         p.lat = parseFloat(data[0].lat);
         p.lon = parseFloat(data[0].lon);
-        await fireSync.upsert(p); // merge Firestore + local
+        await fireSync.upsert(p); // merge Firestore + état mémoire
         updated++;
       }
     }
@@ -1304,7 +1324,7 @@ function updateSyncBadge() {
     badge.classList.remove("offline");
     badge.classList.add("online");
   } else {
-    badge.textContent = "LOCAL";
+    badge.textContent = "HORS LIGNE";
     badge.classList.remove("online");
     badge.classList.add("offline");
   }
@@ -1314,15 +1334,7 @@ function updateTechnicianCounter() {
   const counterEl = document.getElementById("techCount");
   if (!counterEl) return;
 
-  // 1) Essaye via localStorage (source "officielle")
-  let list = [];
-  try {
-    list = JSON.parse(localStorage.getItem(LS_KEY)) || [];
-  } catch (e) {
-    list = [];
-  }
-
-  // 2) Fallback : si localStorage vide mais des marqueurs existent, on compte les marqueurs
+  const list = getProviders();
   const countFromMarkers = (typeof markerIndex !== "undefined" && markerIndex?.size) ? markerIndex.size : 0;
   const count = (list.length > 0) ? list.length : countFromMarkers;
 
