@@ -120,6 +120,16 @@
         <input type="text" id="contactName" placeholder="NOM" required />
         <input type="text" id="firstName" placeholder="PRÉNOM" />
         <input type="text" id="address" placeholder="ADRESSE POSTALE" required />
+        <label>Villes / départements d’intervention :</label>
+
+<div id="serviceAreas">
+  <div class="service-area-row">
+    <input type="text" class="service-area-input" placeholder="Ville ou département" />
+    <button type="button" onclick="removeServiceArea(this)">❌</button>
+  </div>
+</div>
+
+<button type="button" onclick="addServiceArea()">➕ Ajouter une ville / département</button>
         <input type="email" id="email" placeholder="ADRESSE EMAIL" />
         <input type="tel" id="phone" placeholder="N° DE TÉLÉPHONE" />
         <input type="number" id="rate" placeholder="Tarif heure HT (€)" step="0.01" />
