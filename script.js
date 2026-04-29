@@ -29,7 +29,10 @@ function normalizeAreaLabel(area) {
 }
 
 function areaKey(area) {
-  return normalizeAreaLabel(area).toLowerCase();
+  return normalizeAreaLabel(area)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 }
 
 function zoneMarkerKey(p, area) {
@@ -646,6 +649,64 @@ async function handleFormSubmit(event) {
 }
 
 // ----------------- Recherche de prestataire proche -----------------
+function distanceKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function getProviderSearchCandidates(provider, searchedCity) {
+  const searchedKey = areaKey(searchedCity);
+  const candidates = [];
+  const coords = Array.isArray(provider.serviceAreaCoords) ? provider.serviceAreaCoords : [];
+
+  coords.forEach(coord => {
+    if (!hasValidCoords(coord)) return;
+    candidates.push({
+      provider,
+      area: normalizeAreaLabel(coord.area || provider.address || ""),
+      lat: parseFloat(coord.lat),
+      lon: parseFloat(coord.lon),
+      exactAreaMatch: areaKey(coord.area) === searchedKey
+    });
+  });
+
+  const areas = getProviderAreas(provider);
+  for (const area of areas) {
+    const alreadyKnown = candidates.some(c => areaKey(c.area) === areaKey(area));
+    if (alreadyKnown || areaKey(area) !== searchedKey) continue;
+
+    const resolved = await resolveAreaCoord(area);
+    if (resolved) {
+      candidates.push({
+        provider,
+        area,
+        lat: resolved.lat,
+        lon: resolved.lon,
+        exactAreaMatch: true
+      });
+    }
+  }
+
+  if (!candidates.length && hasValidCoords(provider)) {
+    candidates.push({
+      provider,
+      area: normalizeAreaLabel(provider.address || ""),
+      lat: parseFloat(provider.lat),
+      lon: parseFloat(provider.lon),
+      exactAreaMatch: areaKey(provider.address) === searchedKey
+    });
+  }
+
+  return candidates;
+}
+
 async function searchNearest() {
   const city = document.getElementById("cityInput").value.trim();
   if (!city) return;
@@ -662,25 +723,30 @@ async function searchNearest() {
   let minDistance = Infinity;
 
   for (const provider of providers) {
-    let plat = provider.lat, plon = provider.lon;
-    if (plat == null || plon == null) {
-      const data = await fetchNominatim(provider.address || "");
-      if (!data.length) continue;
-      plat = parseFloat(data[0].lat);
-      plon = parseFloat(data[0].lon);
-    }
-    const distance = Math.sqrt(Math.pow(plat - userLat, 2) + Math.pow(plon - userLon, 2));
-    if (distance < minDistance) {
-      minDistance = distance;
-      nearest = { ...provider, lat: plat, lon: plon };
+    const candidates = await getProviderSearchCandidates(provider, city);
+    for (const candidate of candidates) {
+      const distance = distanceKm(userLat, userLon, candidate.lat, candidate.lon);
+      const score = candidate.exactAreaMatch ? -1 : distance;
+      if (score < minDistance) {
+        minDistance = score;
+        nearest = {
+          ...candidate.provider,
+          lat: candidate.lat,
+          lon: candidate.lon,
+          matchedArea: candidate.area,
+          exactAreaMatch: candidate.exactAreaMatch,
+          distanceKm: distance
+        };
+      }
     }
   }
 
   if (nearest) {
     map.setView([nearest.lat, nearest.lon], 12);
+    const areaLine = nearest.matchedArea ? `<br><em>Zone : ${nearest.matchedArea}</em>` : "";
     L.popup()
       .setLatLng([nearest.lat, nearest.lon])
-      .setContent(`<strong>${nearest.companyName || '—'}</strong><br>${nearest.contactName || '—'}<br>${nearest.email || '—'}<br>${nearest.phone || '—'}`)
+      .setContent(`<strong>${nearest.companyName || '—'}</strong><br>${nearest.contactName || '—'}<br>${nearest.email || '—'}<br>${nearest.phone || '—'}${areaLine}`)
       .openOn(map);
   } else {
     alert("Aucun prestataire trouvé.");
