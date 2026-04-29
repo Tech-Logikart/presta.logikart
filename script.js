@@ -178,7 +178,10 @@ const fireSync = {
         const p = { id: change.doc.id, ...change.doc.data() };
 
         // ne pas géocoder ici → on affiche seulement si coords présentes
-        if (p.lat == null || p.lon == null) return;
+        if (p.lat == null || p.lon == null) {
+  geocodeAndAddToMap(p); // 🔥 on force géocodage
+  return;
+}
 
         const key = markerKey(p);
         if (change.type === "added") {
@@ -483,21 +486,21 @@ async function searchNearest() {
 // ----------------- Chargement & liste -----------------
 function loadProvidersFromLocalStorage() {
   clearMarkers();
-  const providers = (JSON.parse(localStorage.getItem(LS_KEY)) || [])
-    .filter(p => p.lat != null && p.lon != null); // pas de géocodage ici
 
-  let i = 0, CHUNK = 200;
-  function addChunk() {
-    const end = Math.min(i + CHUNK, providers.length);
-    for (; i < end; i++) upsertMarker(providers[i]);
-    if (i < providers.length) {
-      requestAnimationFrame(addChunk);
-    } else {
-      fitMapToAllMarkers();
-      updateProviderList(); // débouncé
-    }
+  const providers = JSON.parse(localStorage.getItem(LS_KEY)) || [];
+
+  if (!providers.length) {
+    console.log("Aucun prestataire en base");
+    return;
   }
-  requestAnimationFrame(addChunk);
+
+  // 🔥 On affiche TOUS les prestataires (même sans coordonnées)
+  providers.forEach(p => {
+    geocodeAndAddToMap(p); // géocode si nécessaire
+  });
+
+  fitMapToAllMarkers();
+  updateProviderListNow();
 }
 
 // --- rendu immédiat (non débouncé) de la liste ---
@@ -1157,7 +1160,15 @@ function updateSyncBadge() {
 function toggleProviderList() {
   const list = document.getElementById("providerList");
   if (!list) return;
-  list.style.display = list.style.display === "none" ? "block" : "none";
+
+  const isHidden = list.style.display === "none" || !list.style.display;
+
+  if (isHidden) {
+    list.style.display = "block";
+    updateProviderListNow(); // 🔥 FORCER affichage immédiat
+  } else {
+    list.style.display = "none";
+  }
 }
 
 // ----------------- Backfill coords manquantes (asynchrone) -----------------
