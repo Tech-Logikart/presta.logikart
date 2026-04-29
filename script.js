@@ -49,6 +49,10 @@ function hasValidCoords(p) {
   return !isNaN(lat) && !isNaN(lon);
 }
 
+function logProviderGeocodeStep(label, data) {
+  console.log(`[Prestataire géocodage] ${label}`, data);
+}
+
 function createMarker(p) {
   const m = L.marker([p.lat, p.lon]).bindPopup(
     `<strong>${p.companyName || ""}</strong><br>${p.contactName || ""}<br>${p.email || ""}<br>${p.phone || ""}<br><em>${p.address || ""}</em>`
@@ -202,10 +206,12 @@ const fireSync = {
     // 2) write Firestore puis état mémoire
     if (this.online) {
       if (p.id) {
+        logProviderGeocodeStep("prestataire sauvegardé final", p);
         await db.collection("prestataires").doc(p.id).set(p, { merge: true });
       } else {
         const docRef = await db.collection("prestataires").add(p);
         p.id = docRef.id;
+        logProviderGeocodeStep("prestataire sauvegardé final", p);
       }
     } else {
       throw new Error("Connexion Firestore indisponible : enregistrement annulé pour éviter une sauvegarde locale navigateur.");
@@ -435,7 +441,20 @@ function getStoredAreaCoord(provider, area) {
 }
 
 async function resolveAreaCoord(area) {
-  const queries = buildQueries(area);
+  const normalizedArea = normalizeAreaLabel(area);
+  const hasCountry = /(France|Belgique|Belgium|Suisse|Switzerland|Luxembourg|Espagne|Spain|Italie|Italy|Allemagne|Germany|Royaume-Uni|United Kingdom|England)\b/i.test(normalizedArea);
+  const belgianAreas = new Set(["antwerpen", "anvers", "bruges", "brugge", "bruxelles", "brussels", "gand", "gent", "hasselt"]);
+  const countryHints = belgianAreas.has(areaKey(normalizedArea))
+    ? ["Belgium", "France", "Switzerland", "Luxembourg", "Spain", "Italy", "Germany", "United Kingdom"]
+    : ["France", "Belgium", "Switzerland", "Luxembourg", "Spain", "Italy", "Germany", "United Kingdom"];
+  const looksLikeFullAddress = /[\d,]/.test(normalizedArea);
+  const queries = hasCountry
+    ? buildQueries(normalizedArea)
+    : [
+        normalizedArea,
+        ...(looksLikeFullAddress ? buildQueries(normalizedArea) : []),
+        ...countryHints.map(country => `${normalizedArea}, ${country}`)
+      ].filter((v, i, a) => v && a.indexOf(v) === i);
   for (const q of queries) {
     const data = await fetchNominatim(q);
     if (data && data.length) {
@@ -452,10 +471,18 @@ async function ensureServiceAreaCoords(provider) {
   const coords = [];
   let changed = false;
 
+  logProviderGeocodeStep("adresse principale", provider.address || "");
+  logProviderGeocodeStep("coordonnées principales", {
+    lat: provider.lat ?? null,
+    lon: provider.lon ?? null
+  });
+  logProviderGeocodeStep("villes d'intervention", areas);
+
   for (const area of areas) {
     const stored = getStoredAreaCoord(provider, area);
     if (stored) {
       coords.push({ ...stored, area });
+      logProviderGeocodeStep(`coordonnées conservées pour ${area}`, stored);
       continue;
     }
 
@@ -463,6 +490,7 @@ async function ensureServiceAreaCoords(provider) {
     if (resolved) {
       coords.push(resolved);
       changed = true;
+      logProviderGeocodeStep(`coordonnées calculées pour ${area}`, resolved);
     } else {
       console.warn("Géocodage introuvable pour zone :", area);
     }
@@ -470,42 +498,51 @@ async function ensureServiceAreaCoords(provider) {
 
   if (coords.length) {
     provider.serviceAreaCoords = coords;
-    if (!hasValidCoords(provider)) {
-      provider.lat = coords[0].lat;
-      provider.lon = coords[0].lon;
-    }
   }
 
   return { provider, changed };
 }
 
 function renderProviderMarkers(provider, opts = {}) {
-  if (!opts.skipRemove) removeProviderMarkers(provider);
-
-  const areas = getProviderAreas(provider);
-  if (areas.length) {
-    let firstMarker = null;
-    areas.forEach(area => {
-      const coord = getStoredAreaCoord(provider, area);
-      if (!coord) return;
-      const markerProvider = { ...provider, lat: coord.lat, lon: coord.lon, address: area };
-      const marker = createMarkerForZone(markerProvider, area);
-      if (!firstMarker) firstMarker = marker;
-    });
-
-    if (opts.pan && firstMarker) map.setView(firstMarker.getLatLng(), Math.max(map.getZoom(), 11));
-    if (opts.open && firstMarker) firstMarker.openPopup();
-    return firstMarker;
-  }
+  const markerDefs = [];
 
   if (hasValidCoords(provider)) {
-    const marker = upsertMarker(normalizeCoords(provider));
-    if (opts.pan) map.setView(marker.getLatLng(), Math.max(map.getZoom(), 11));
-    if (opts.open) marker.openPopup();
-    return marker;
+    markerDefs.push({
+      type: "main",
+      lat: parseFloat(provider.lat),
+      lon: parseFloat(provider.lon),
+      area: provider.address || ""
+    });
   }
 
-  return null;
+  const areas = getProviderAreas(provider);
+  areas.forEach(area => {
+    const coord = getStoredAreaCoord(provider, area);
+    if (!coord) return;
+    markerDefs.push({
+      type: "zone",
+      lat: coord.lat,
+      lon: coord.lon,
+      area
+    });
+  });
+
+  if (!markerDefs.length) return null;
+
+  if (!opts.skipRemove) removeProviderMarkers(provider);
+
+  let firstMarker = null;
+  markerDefs.forEach(def => {
+    const markerProvider = { ...provider, lat: def.lat, lon: def.lon, address: def.area };
+    const marker = def.type === "main"
+      ? upsertMarker(markerProvider)
+      : createMarkerForZone(markerProvider, def.area);
+    if (!firstMarker) firstMarker = marker;
+  });
+
+  if (opts.pan && firstMarker) map.setView(firstMarker.getLatLng(), Math.max(map.getZoom(), 11));
+  if (opts.open && firstMarker) firstMarker.openPopup();
+  return firstMarker;
 }
 
 function createMarkerForZone(p, area) {
@@ -632,11 +669,15 @@ async function handleFormSubmit(event) {
     provider.id = existing.id;
     provider.lat = existing.lat;
     provider.lon = existing.lon;
+    provider.serviceAreaCoords = Array.isArray(existing.serviceAreaCoords)
+      ? existing.serviceAreaCoords
+      : [];
   }
 }
   try {
     const saved = await fireSync.upsert(provider);        // géocode ici si besoin + stocke lat/lon
-    geocodeAndAddToMap(saved, { pan: true, open: true }); // animation locale
+    renderProviderMarkers(saved, { pan: true, open: true });
+    fitMapToAllMarkers();
     updateProviderList(); // débouncé
     const list = document.getElementById("providerList");
     if (list) list.style.display = "block";
