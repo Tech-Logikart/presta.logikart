@@ -1564,6 +1564,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     dropdown.style.display = (dropdown.style.display === "none" || !dropdown.style.display) ? "block" : "none";
   });
   document.addEventListener("click", () => { if (dropdown) dropdown.style.display = "none"; });
+  document.addEventListener("mousedown", handleProviderListClickOutside);
   updateSyncBadge();
   requestAnimationFrame(() => map.invalidateSize());
   window.addEventListener("resize", debounce(() => map.invalidateSize(), 120));
@@ -1593,6 +1594,23 @@ function toggleProviderList() {
     updateProviderListNow(); // 🔥 FORCER affichage immédiat
   } else {
     list.style.display = "none";
+  }
+}
+
+function handleProviderListClickOutside(event) {
+  const providerList = document.getElementById("providerList");
+  if (!providerList || providerList.style.display !== "block") return;
+
+  const burger = document.getElementById("burgerMenu");
+  const dropdown = document.getElementById("menuDropdown");
+  const target = event.target;
+
+  const clickedInsideProviders = providerList.contains(target);
+  const clickedInsideBurger = burger && burger.contains(target);
+  const clickedInsideBurgerMenu = dropdown && dropdown.contains(target);
+
+  if (!clickedInsideProviders && !clickedInsideBurger && !clickedInsideBurgerMenu) {
+    providerList.style.display = "none";
   }
 }
 
