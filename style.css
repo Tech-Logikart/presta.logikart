@@ -204,6 +204,28 @@
   }
 }
 
+.form-message {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.form-message.error {
+  color: #8a1f1f;
+  background: #fff1f1;
+  border: 1px solid #f1b7b7;
+}
+
+.form-message.success {
+  color: #0f5a3a;
+  background: #effaf4;
+  border: 1px solid #aee5c7;
+}
+
 * {
   box-sizing: border-box;
 }
