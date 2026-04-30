@@ -128,10 +128,214 @@ async function ensureAuth() { try { if (window.authReady) await window.authReady
 
 // ----------------- Firestore comme source commune -----------------
 const keyOf = (p) => (String(p.email || "").toLowerCase() + "|" + String(p.phone || ""));
+function normalizeCompanyName(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function companyKeyOf(provider) {
+  return normalizeCompanyName(provider?.raisonSociale || provider?.companyName);
+}
+
+function samePersistedProvider(a, b) {
+  if (a?.id && b?.id) return a.id === b.id;
+  if (a?.id || b?.id) return false;
+  return keyOf(a) === keyOf(b);
+}
+
+function locationAddressKey(location) {
+  return areaKey(location?.adresse || location?.address || location?.ville || location?.area || "");
+}
+
+function locationCoordsKey(location) {
+  const lat = parseFloat(location?.latitude ?? location?.lat);
+  const lon = parseFloat(location?.longitude ?? location?.lon);
+  if (isNaN(lat) || isNaN(lon)) return "";
+  return `${lat.toFixed(5)}|${lon.toFixed(5)}`;
+}
+
+function markerLocationKey(location) {
+  return locationCoordsKey(location) || locationAddressKey(location);
+}
+
+function coerceLocation(location) {
+  const lat = parseFloat(location?.latitude ?? location?.lat);
+  const lon = parseFloat(location?.longitude ?? location?.lon);
+  const adresse = normalizeAreaLabel(location?.adresse || location?.address || location?.area || location?.ville || "");
+  const ville = normalizeAreaLabel(location?.ville || location?.city || location?.area || adresse);
+  const codePostal = normalizeAreaLabel(location?.codePostal || location?.postalCode || "");
+  const pays = normalizeAreaLabel(location?.pays || location?.country || "");
+  if (!adresse && (isNaN(lat) || isNaN(lon))) return null;
+  return {
+    adresse,
+    ville,
+    codePostal,
+    pays,
+    latitude: isNaN(lat) ? null : lat,
+    longitude: isNaN(lon) ? null : lon
+  };
+}
+
+function mergeUniqueLocations(...groups) {
+  const locations = [];
+  const seenAddresses = new Set();
+  const seenCoords = new Set();
+
+  groups.flat().forEach(raw => {
+    const location = coerceLocation(raw);
+    if (!location) return;
+    const addressKey = locationAddressKey(location);
+    const coordsKey = locationCoordsKey(location);
+    if ((addressKey && seenAddresses.has(addressKey)) || (coordsKey && seenCoords.has(coordsKey))) return;
+    if (addressKey) seenAddresses.add(addressKey);
+    if (coordsKey) seenCoords.add(coordsKey);
+    locations.push(location);
+  });
+
+  return locations;
+}
+
+function legacyLocationsFromProvider(provider) {
+  const locations = [];
+
+  if (hasValidCoords(provider) || provider?.address) {
+    locations.push({
+      adresse: provider.address || "",
+      ville: provider.address || "",
+      codePostal: "",
+      pays: "",
+      latitude: hasValidCoords(provider) ? parseFloat(provider.lat) : null,
+      longitude: hasValidCoords(provider) ? parseFloat(provider.lon) : null
+    });
+  }
+
+  getProviderAreas(provider).forEach(area => {
+    const coord = getStoredAreaCoord(provider, area);
+    locations.push({
+      adresse: area,
+      ville: area,
+      codePostal: "",
+      pays: "",
+      latitude: coord ? coord.lat : null,
+      longitude: coord ? coord.lon : null
+    });
+  });
+
+  return locations;
+}
+
+function getProviderLocations(provider) {
+  return mergeUniqueLocations(
+    Array.isArray(provider?.locations) ? provider.locations : [],
+    legacyLocationsFromProvider(provider)
+  );
+}
+
+function syncProviderLocations(provider) {
+  if (!provider) return provider;
+  provider.raisonSociale = provider.companyName || provider.raisonSociale || "";
+  provider.locations = getProviderLocations(provider);
+  return provider;
+}
+
+function mergeProviderRecords(records) {
+  const [first, ...rest] = records;
+  const merged = { ...first };
+  rest.forEach(item => {
+    ["companyName", "raisonSociale", "contactName", "firstName", "address", "email", "phone", "rate", "travelFees", "totalCost"].forEach(field => {
+      if (!merged[field] && item[field]) merged[field] = item[field];
+    });
+    merged.serviceAreas = Array.from(new Set([
+      ...(Array.isArray(merged.serviceAreas) ? merged.serviceAreas : []),
+      ...(Array.isArray(item.serviceAreas) ? item.serviceAreas : [])
+    ].map(normalizeAreaLabel).filter(Boolean)));
+    merged.serviceAreaCoords = mergeUniqueAreaCoords(merged.serviceAreaCoords, item.serviceAreaCoords);
+  });
+  merged.locations = mergeUniqueLocations(...records.map(getProviderLocations));
+  syncProviderLocations(merged);
+  return merged;
+}
+
+function mergeUniqueAreaCoords(...groups) {
+  const seen = new Set();
+  const coords = [];
+  groups.flat().forEach(raw => {
+    if (!raw) return;
+    const area = normalizeAreaLabel(raw.area || raw.adresse || raw.address || raw.ville || "");
+    const lat = parseFloat(raw.lat ?? raw.latitude);
+    const lon = parseFloat(raw.lon ?? raw.longitude);
+    const key = areaKey(area) || (!isNaN(lat) && !isNaN(lon) ? `${lat.toFixed(5)}|${lon.toFixed(5)}` : "");
+    if (!key || seen.has(key) || isNaN(lat) || isNaN(lon)) return;
+    seen.add(key);
+    coords.push({ area, lat, lon });
+  });
+  return coords;
+}
+
+function mergeProviderList(list) {
+  const byCompany = new Map();
+  const singles = [];
+  list.forEach(provider => {
+    syncProviderLocations(provider);
+    const companyKey = companyKeyOf(provider);
+    if (!companyKey) {
+      singles.push(provider);
+      return;
+    }
+    if (!byCompany.has(companyKey)) byCompany.set(companyKey, []);
+    byCompany.get(companyKey).push(provider);
+  });
+  byCompany.forEach(group => singles.push(group.length > 1 ? mergeProviderRecords(group) : group[0]));
+  return singles;
+}
+
+function duplicateProviderGroups(list) {
+  const groups = new Map();
+  list.forEach(provider => {
+    const key = companyKeyOf(provider);
+    if (!key) return;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(provider);
+  });
+  return Array.from(groups.values()).filter(group => group.length > 1);
+}
+
+function hasCompanyConflict(candidate, currentProvider = null) {
+  const key = companyKeyOf(candidate);
+  if (!key) return false;
+  return getProviders().some(provider => {
+    if (companyKeyOf(provider) !== key) return false;
+    return !currentProvider || !samePersistedProvider(provider, currentProvider);
+  });
+}
+
+async function cleanDuplicateProviders(rawList, promptUser = true) {
+  const groups = duplicateProviderGroups(rawList);
+  if (!groups.length || !fireSync.online) return false;
+  const duplicateCount = groups.reduce((sum, group) => sum + group.length - 1, 0);
+  const shouldClean = !promptUser || confirm(`${duplicateCount} doublon(s) de prestataire détecté(s). Voulez-vous les fusionner automatiquement maintenant ?`);
+  if (!shouldClean) return false;
+
+  for (const group of groups) {
+    const primary = group.find(p => p.id) || group[0];
+    const merged = mergeProviderRecords(group);
+    merged.id = primary.id;
+    await db.collection("prestataires").doc(primary.id).set(merged, { merge: true });
+    for (const item of group) {
+      if (item.id && item.id !== primary.id) await db.collection("prestataires").doc(item.id).delete();
+    }
+  }
+  return true;
+}
+
 let providersState = [];
 
 function setProvidersState(list) {
-  providersState = Array.isArray(list) ? list : [];
+  providersState = mergeProviderList(Array.isArray(list) ? list : []);
   updateTechnicianCounter();
 }
 
@@ -140,9 +344,12 @@ function getProviders() {
 }
 
 function upsertProviderState(p) {
+  syncProviderLocations(p);
   const list = [...providersState];
   let idx = -1;
   if (p.id) idx = list.findIndex(x => x.id === p.id);
+  const companyKey = companyKeyOf(p);
+  if (idx === -1 && companyKey) idx = list.findIndex(x => companyKeyOf(x) === companyKey);
   if (idx === -1) idx = list.findIndex(x => keyOf(x) === keyOf(p));
   if (idx >= 0) list[idx] = { ...list[idx], ...p };
   else list.push(p);
@@ -175,13 +382,19 @@ const fireSync = {
 
   async pullAll() {
     const snap = await db.collection("prestataires").get();
-    const list = [];
+    let list = [];
     snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+    const cleaned = await cleanDuplicateProviders(list, true);
+    if (cleaned) {
+      const freshSnap = await db.collection("prestataires").get();
+      list = [];
+      freshSnap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+    }
     setProvidersState(list);
 
     // Chargement initial en lots rapides (sans géocoder)
     clearMarkers();
-    const providers = list.filter(p => hasValidCoords(p) || getProviderAreas(p).length);
+    const providers = getProviders().filter(p => getProviderLocations(p).some(location => location.latitude != null && location.longitude != null) || getProviderAreas(p).length);
     let i = 0, CHUNK = 1000;
     function addChunk() {
       const end = Math.min(i + CHUNK, providers.length);
@@ -199,6 +412,7 @@ const fireSync = {
   },
 
   async upsert(p) {
+    syncProviderLocations(p);
     // 1) compléter lat/lon si absents (géocodage unique, rate-limité)
     const hasCoords = p.lat != null && p.lon != null &&
                       !isNaN(parseFloat(p.lat)) && !isNaN(parseFloat(p.lon));
@@ -210,6 +424,7 @@ const fireSync = {
       }
     }
     await ensureServiceAreaCoords(p);
+    syncProviderLocations(p);
 
     // 2) write Firestore puis état mémoire
     if (this.online) {
@@ -254,6 +469,7 @@ const fireSync = {
       // 🔁 Diff incrémental
       snap.docChanges().forEach(change => {
         const p = { id: change.doc.id, ...change.doc.data() };
+        syncProviderLocations(p);
 
         const alreadyOnMap = hasProviderMarkers(p);
         if (change.type === "added") {
@@ -444,8 +660,14 @@ function getProviderAreas(provider) {
 function getStoredAreaCoord(provider, area) {
   const coords = Array.isArray(provider.serviceAreaCoords) ? provider.serviceAreaCoords : [];
   const found = coords.find(item => areaKey(item.area) === areaKey(area));
-  if (!found || !hasValidCoords(found)) return null;
-  return { area: normalizeAreaLabel(found.area || area), lat: parseFloat(found.lat), lon: parseFloat(found.lon) };
+  if (found && hasValidCoords(found)) return { area: normalizeAreaLabel(found.area || area), lat: parseFloat(found.lat), lon: parseFloat(found.lon) };
+
+  const locations = Array.isArray(provider.locations) ? provider.locations : [];
+  const savedLocation = locations.find(item => areaKey(item.adresse || item.ville) === areaKey(area));
+  const lat = parseFloat(savedLocation?.latitude ?? savedLocation?.lat);
+  const lon = parseFloat(savedLocation?.longitude ?? savedLocation?.lon);
+  if (isNaN(lat) || isNaN(lon)) return null;
+  return { area: normalizeAreaLabel(savedLocation.adresse || savedLocation.ville || area), lat, lon };
 }
 
 async function resolveAreaCoord(area) {
@@ -507,33 +729,22 @@ async function ensureServiceAreaCoords(provider) {
   if (coords.length) {
     provider.serviceAreaCoords = coords;
   }
+  syncProviderLocations(provider);
 
   return { provider, changed };
 }
 
 function renderProviderMarkers(provider, opts = {}) {
-  const markerDefs = [];
-
-  if (hasValidCoords(provider)) {
-    markerDefs.push({
-      type: "main",
-      lat: parseFloat(provider.lat),
-      lon: parseFloat(provider.lon),
-      area: provider.address || ""
-    });
-  }
-
-  const areas = getProviderAreas(provider);
-  areas.forEach(area => {
-    const coord = getStoredAreaCoord(provider, area);
-    if (!coord) return;
-    markerDefs.push({
-      type: "zone",
-      lat: coord.lat,
-      lon: coord.lon,
-      area
-    });
-  });
+  syncProviderLocations(provider);
+  const markerDefs = getProviderLocations(provider)
+    .filter(location => location.latitude != null && location.longitude != null)
+    .map((location, index) => ({
+      type: index === 0 ? "main" : "zone",
+      lat: parseFloat(location.latitude),
+      lon: parseFloat(location.longitude),
+      area: location.adresse || location.ville || provider.address || ""
+    }))
+    .filter(def => !isNaN(def.lat) && !isNaN(def.lon));
 
   if (!markerDefs.length) return null;
 
@@ -619,9 +830,16 @@ function removeServiceArea(button) {
 }
 
 function getServiceAreas() {
+  const seen = new Set();
   return Array.from(document.querySelectorAll(".service-area-input"))
     .map(input => input.value.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter(area => {
+      const key = areaKey(area);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 function setServiceAreas(areas = []) {
@@ -642,6 +860,7 @@ function setServiceAreas(areas = []) {
 function addProvider() {
   const modal = document.getElementById("providerFormSection");
   if (!modal) return console.error("#providerFormSection introuvable");
+  clearProviderFormMessage();
   modal.style.display = "flex";
 }
 function hideForm() {
@@ -649,17 +868,41 @@ function hideForm() {
   const modal = document.getElementById("providerFormSection");
   if (form) form.reset();
   setServiceAreas([]);
+  clearProviderFormMessage();
   if (modal) modal.style.display = "none";
   editingIndex = null;
+}
+
+function showProviderFormMessage(message, type = "error") {
+  const form = document.getElementById("providerForm");
+  if (!form) {
+    alert(message);
+    return;
+  }
+  let box = document.getElementById("providerFormMessage");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "providerFormMessage";
+    form.prepend(box);
+  }
+  box.className = `form-message ${type}`;
+  box.textContent = message;
+}
+
+function clearProviderFormMessage() {
+  const box = document.getElementById("providerFormMessage");
+  if (box) box.remove();
 }
 
 document.getElementById("providerForm")?.addEventListener("submit", handleFormSubmit);
 
 async function handleFormSubmit(event) {
   event.preventDefault();
+  clearProviderFormMessage();
 
   const provider = {
     companyName: document.getElementById("companyName").value,
+    raisonSociale: document.getElementById("companyName").value,
     contactName: document.getElementById("contactName").value,
     firstName: document.getElementById("firstName").value,
     address: document.getElementById("address").value,
@@ -670,6 +913,11 @@ async function handleFormSubmit(event) {
     travelFees: document.getElementById("travelFees").value,
     totalCost: document.getElementById("totalCost").value
   };
+  const locationKeys = [provider.address, ...provider.serviceAreas].map(areaKey).filter(Boolean);
+  if (new Set(locationKeys).size !== locationKeys.length) {
+    showProviderFormMessage("Cette localisation existe déjà.");
+    return;
+  }
   if (editingKey) {
   const list = getProviders();
   const existing = findProviderByKey(list, editingKey);
@@ -680,8 +928,20 @@ async function handleFormSubmit(event) {
     provider.serviceAreaCoords = Array.isArray(existing.serviceAreaCoords)
       ? existing.serviceAreaCoords
       : [];
+    provider.locations = Array.isArray(existing.locations)
+      ? existing.locations.filter(location => {
+          const key = areaKey(location.adresse || location.ville);
+          return key && locationKeys.includes(key);
+        })
+      : [];
   }
 }
+  const currentProvider = editingKey ? findProviderByKey(getProviders(), editingKey) : null;
+  if (hasCompanyConflict(provider, currentProvider)) {
+    showProviderFormMessage("Ce prestataire existe déjà.");
+    return;
+  }
+  syncProviderLocations(provider);
   try {
     const saved = await fireSync.upsert(provider);        // géocode ici si besoin + stocke lat/lon
     renderProviderMarkers(saved, { pan: true, open: true });
@@ -745,16 +1005,15 @@ async function geocodeAddress(address, country) {
 async function getProviderSearchCandidates(provider, searchedCity) {
   const searchedKey = areaKey(searchedCity);
   const candidates = [];
-  const coords = Array.isArray(provider.serviceAreaCoords) ? provider.serviceAreaCoords : [];
-
-  coords.forEach(coord => {
-    if (!hasValidCoords(coord)) return;
+  getProviderLocations(provider).forEach(location => {
+    if (location.latitude == null || location.longitude == null) return;
+    const area = normalizeAreaLabel(location.ville || location.adresse || provider.address || "");
     candidates.push({
       provider,
-      area: normalizeAreaLabel(coord.area || provider.address || ""),
-      lat: parseFloat(coord.lat),
-      lon: parseFloat(coord.lon),
-      exactAreaMatch: areaKey(coord.area) === searchedKey
+      area,
+      lat: parseFloat(location.latitude),
+      lon: parseFloat(location.longitude),
+      exactAreaMatch: areaKey(area) === searchedKey
     });
   });
 
@@ -940,8 +1199,8 @@ function updateProviderListNow() {
     const div = document.createElement("div");
     div.className = "provider-entry";
  const zonesText =
-  Array.isArray(p.serviceAreas) && p.serviceAreas.length
-    ? p.serviceAreas.join(", ")
+  getProviderLocations(p).length
+    ? getProviderLocations(p).map(location => location.ville || location.adresse).filter(Boolean).join(", ")
     : (p.address || "—");
 
 div.innerHTML = `
@@ -969,6 +1228,7 @@ window.updateProviderList = updateProviderList; // si jamais appelé depuis HTML
 
 function findProviderByKey(list, k) {
   let p = list.find(x => x.id && x.id === k);
+  if (!p) p = list.find(x => companyKeyOf(x) && companyKeyOf(x) === normalizeCompanyName(k));
   if (!p) p = list.find(x => keyOf(x) === k);
   return p || null;
 }
@@ -1066,6 +1326,7 @@ function normalizeProvider(obj) {
   };
   const p = {
     companyName: norm(obj.companyName ?? obj.raisonSociale),
+    raisonSociale: norm(obj.raisonSociale ?? obj.companyName),
     contactName: norm(obj.contactName ?? obj.nom),
     firstName:   norm(obj.firstName   ?? obj.prenom),
     address:     norm(obj.address     ?? obj.adresse),
@@ -1078,6 +1339,9 @@ function normalizeProvider(obj) {
     lat:         obj.lat !== undefined ? obj.lat : undefined,
     lon:         obj.lon !== undefined ? obj.lon : undefined
   };
+  if (Array.isArray(obj.locations)) p.locations = mergeUniqueLocations(obj.locations);
+  if (Array.isArray(obj.serviceAreas)) p.serviceAreas = obj.serviceAreas.map(normalizeAreaLabel).filter(Boolean);
+  if (Array.isArray(obj.serviceAreaCoords)) p.serviceAreaCoords = mergeUniqueAreaCoords(obj.serviceAreaCoords);
   if (!p.totalCost) {
     const r = parseFloat(num(p.rate)) || 0;
     const t = parseFloat(num(p.travelFees)) || 0;
@@ -1164,21 +1428,31 @@ async function handleImport() {
 
   const skipDuplicates = document.getElementById("skipDuplicates")?.checked ?? true;
   const existing = getProviders();
-  const byKey = new Map(existing.map(p => [keyOf(p), p]));
+  const byKey = new Map();
+  existing.forEach(p => {
+    const companyKey = companyKeyOf(p);
+    if (companyKey) byKey.set(companyKey, p);
+    byKey.set(keyOf(p), p);
+  });
   const results = { added: 0, updated: 0, skipped: 0, errors: 0 };
 
   for (const raw of incoming) {
     const p = normalizeProvider(raw);
     if (!p.companyName && !p.contactName && !p.email) { results.skipped++; continue; }
 
-    const match = byKey.get(keyOf(p));
+    syncProviderLocations(p);
+    const companyKey = companyKeyOf(p);
+    const match = (companyKey && byKey.get(companyKey)) || byKey.get(keyOf(p));
     try {
       if (match && skipDuplicates) {
         results.skipped++;
       } else {
-        const merged = match ? { ...match, ...p, id: match.id } : p;
+        const merged = match ? mergeProviderRecords([{ ...match }, { ...p, id: match.id }]) : p;
+        if (match) merged.id = match.id;
         const saved = await fireSync.upsert(merged); // géocode ici si coords manquantes
         if (match) results.updated++; else results.added++;
+        const savedCompanyKey = companyKeyOf(saved);
+        if (savedCompanyKey) byKey.set(savedCompanyKey, saved);
         byKey.set(keyOf(saved), saved);
       }
     } catch (e) {
