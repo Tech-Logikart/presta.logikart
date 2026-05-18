@@ -981,9 +981,23 @@ function countryForGeocode(country) {
     "Espagne": "Spain",
     "Italie": "Italy",
     "Allemagne": "Germany",
-    "Royaume-Uni": "United Kingdom"
+    "Royaume-Uni": "United Kingdom",
+    "Monaco": "Monaco"
   };
   return countries[country] || country;
+}
+
+function knownSearchLocation(address) {
+  const key = areaKey(address);
+  const monacoAliases = new Set(["monaco", "monacoville", "monaco ville", "montecarlo", "monte carlo", "principaute de monaco"]);
+  if (monacoAliases.has(key)) {
+    return {
+      lat: 43.7384,
+      lon: 7.4246,
+      label: "Monaco, Monaco"
+    };
+  }
+  return null;
 }
 
 async function geocodeAddress(address, country) {
@@ -991,6 +1005,9 @@ async function geocodeAddress(address, country) {
   const cleanCountry = normalizeAreaLabel(country);
   if (!cleanCountry) throw new Error("country_missing");
   if (!cleanAddress) throw new Error("address_missing");
+
+  const knownLocation = knownSearchLocation(cleanAddress);
+  if (knownLocation) return knownLocation;
 
   const query = `${cleanAddress}, ${countryForGeocode(cleanCountry)}`;
   const data = await fetchNominatim(query);
