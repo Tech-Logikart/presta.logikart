@@ -1000,6 +1000,31 @@ function knownSearchLocation(address) {
   return null;
 }
 
+function isMonacoSearch(address, country = "") {
+  const addressKey = areaKey(address);
+  const countryKey = areaKey(country);
+  return countryKey === "monaco" || /\bmonaco\b/i.test(String(address || "")) || addressKey.includes("monaco") || addressKey.includes("montecarlo");
+}
+
+function buildSearchGeocodeQueries(address, country) {
+  const cleanAddress = normalizeAreaLabel(address);
+  const cleanCountry = normalizeAreaLabel(country);
+  const selectedCountry = countryForGeocode(cleanCountry);
+
+  if (isMonacoSearch(cleanAddress, cleanCountry)) {
+    const withoutPostal = cleanAddress.replace(/\b98000\b/g, "").replace(/\s{2,}/g, " ").trim();
+    const withoutMonaco = withoutPostal.replace(/\bmonaco\b/ig, "").replace(/,\s*,/g, ",").replace(/\s{2,}/g, " ").replace(/,\s*$/g, "").trim();
+    return [
+      `${cleanAddress}, Monaco`,
+      cleanAddress,
+      withoutPostal && `${withoutPostal}, Monaco`,
+      withoutMonaco && `${withoutMonaco}, Monaco`
+    ].filter((value, index, array) => value && array.indexOf(value) === index);
+  }
+
+  return [`${cleanAddress}, ${selectedCountry}`];
+}
+
 async function geocodeAddress(address, country) {
   const cleanAddress = normalizeAreaLabel(address);
   const cleanCountry = normalizeAreaLabel(country);
@@ -1009,14 +1034,21 @@ async function geocodeAddress(address, country) {
   const knownLocation = knownSearchLocation(cleanAddress);
   if (knownLocation) return knownLocation;
 
-  const query = `${cleanAddress}, ${countryForGeocode(cleanCountry)}`;
-  const data = await fetchNominatim(query);
-  if (!data || !data.length) return null;
+  const queries = buildSearchGeocodeQueries(cleanAddress, cleanCountry);
+  for (const query of queries) {
+    const data = await fetchNominatim(query);
+    if (!data || !data.length) continue;
 
-  const lat = parseFloat(data[0].lat);
-  const lon = parseFloat(data[0].lon);
-  if (isNaN(lat) || isNaN(lon)) return null;
-  return { lat, lon, label: query };
+    const lat = parseFloat(data[0].lat);
+    const lon = parseFloat(data[0].lon);
+    if (!isNaN(lat) && !isNaN(lon)) return { lat, lon, label: query };
+  }
+
+  return isMonacoSearch(cleanAddress, cleanCountry) ? {
+    lat: 43.7384,
+    lon: 7.4246,
+    label: "Monaco, Monaco"
+  } : null;
 }
 
 async function getProviderSearchCandidates(provider, searchedCity) {
