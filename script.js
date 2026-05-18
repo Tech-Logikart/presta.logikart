@@ -1528,6 +1528,31 @@ function openItineraryTool() { const m = document.getElementById("itineraryModal
 function closeItineraryModal() { const m = document.getElementById("itineraryModal"); if (m) m.style.display = "none"; document.getElementById("itineraryForm").reset(); document.getElementById("extraDestinations").innerHTML = ""; }
 function addDestinationField() { const c = document.getElementById("extraDestinations"); const i = document.createElement("input"); i.type = "text"; i.placeholder = "Destination supplémentaire"; i.classList.add("extra-destination"); c.appendChild(i); }
 
+function inferRouteCountry(address) {
+  const text = String(address || "");
+  if (isMonacoSearch(text)) return "Monaco";
+  if (/\b(Belgique|Belgium|Bruxelles|Brussels|Antwerpen|Anvers)\b/i.test(text)) return "Belgique";
+  if (/\b(Suisse|Switzerland|Genève|Geneva|Lausanne|Zurich)\b/i.test(text)) return "Suisse";
+  if (/\b(Luxembourg)\b/i.test(text)) return "Luxembourg";
+  if (/\b(Espagne|Spain|Madrid|Barcelona|Barcelone|Valencia)\b/i.test(text)) return "Espagne";
+  if (/\b(Italie|Italy|Milano|Milan|Roma|Rome)\b/i.test(text)) return "Italie";
+  if (/\b(Allemagne|Germany|Berlin|Munich|München)\b/i.test(text)) return "Allemagne";
+  if (/\b(Royaume-Uni|United Kingdom|England|London|Londres)\b/i.test(text)) return "Royaume-Uni";
+  return "France";
+}
+
+async function geocodeRouteAddress(address) {
+  const result = await geocodeAddress(address, inferRouteCountry(address));
+  if (result) return result;
+
+  const data = await fetchNominatim(address);
+  if (!data || !data.length) return null;
+  const lat = parseFloat(data[0].lat);
+  const lon = parseFloat(data[0].lon);
+  if (isNaN(lat) || isNaN(lon)) return null;
+  return { lat, lon, label: address };
+}
+
 async function calculateRoute() {
   try {
     const start = document.getElementById("startAddress").value.trim();
@@ -1537,9 +1562,9 @@ async function calculateRoute() {
     const coords = [];
 
     for (const address of points) {
-      const data = await fetchNominatim(/(France|Spain|Italy|Czechia|United Kingdom|England)/i.test(address) ? address : `${address}, France`);
-      if (!data.length) { alert(`Adresse non trouvée : ${address}`); return; }
-      coords.push([parseFloat(data[0].lon), parseFloat(data[0].lat)]); // ORS = [lon, lat]
+      const location = await geocodeRouteAddress(address);
+      if (!location) { alert(`Adresse non trouvée : ${address}`); return; }
+      coords.push([location.lon, location.lat]); // ORS = [lon, lat]
     }
 
     const orsRes = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson', {
