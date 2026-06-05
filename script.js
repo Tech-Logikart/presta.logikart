@@ -182,17 +182,33 @@ function coerceLocation(location) {
 
 function mergeUniqueLocations(...groups) {
   const locations = [];
-  const seenAddresses = new Set();
-  const seenCoords = new Set();
+  const addressIndex = new Map();
+  const coordsIndex = new Map();
 
   groups.flat().forEach(raw => {
     const location = coerceLocation(raw);
     if (!location) return;
     const addressKey = locationAddressKey(location);
     const coordsKey = locationCoordsKey(location);
-    if ((addressKey && seenAddresses.has(addressKey)) || (coordsKey && seenCoords.has(coordsKey))) return;
-    if (addressKey) seenAddresses.add(addressKey);
-    if (coordsKey) seenCoords.add(coordsKey);
+
+    const existingIndex = addressKey && addressIndex.has(addressKey)
+      ? addressIndex.get(addressKey)
+      : (coordsKey && coordsIndex.has(coordsKey) ? coordsIndex.get(coordsKey) : -1);
+
+    if (existingIndex >= 0) {
+      const existing = locations[existingIndex];
+      const existingHasCoords = existing.latitude != null && existing.longitude != null;
+      const incomingHasCoords = location.latitude != null && location.longitude != null;
+      if (!existingHasCoords && incomingHasCoords) {
+        locations[existingIndex] = { ...existing, ...location };
+        if (coordsKey) coordsIndex.set(coordsKey, existingIndex);
+      }
+      return;
+    }
+
+    const nextIndex = locations.length;
+    if (addressKey) addressIndex.set(addressKey, nextIndex);
+    if (coordsKey) coordsIndex.set(coordsKey, nextIndex);
     locations.push(location);
   });
 
@@ -230,8 +246,8 @@ function legacyLocationsFromProvider(provider) {
 
 function getProviderLocations(provider) {
   return mergeUniqueLocations(
-    Array.isArray(provider?.locations) ? provider.locations : [],
-    legacyLocationsFromProvider(provider)
+    legacyLocationsFromProvider(provider),
+    Array.isArray(provider?.locations) ? provider.locations : []
   );
 }
 
