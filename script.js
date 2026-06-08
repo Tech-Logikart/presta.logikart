@@ -1298,7 +1298,7 @@ function updateProviderListNow() {
       <input
         id="providerSearchInput"
         type="search"
-        placeholder="Société, nom, prénom ou email"
+        placeholder="Société, nom, prénom, email ou téléphone"
         autocomplete="off"
         value="${providerListSearchQuery.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"
       />
@@ -1321,12 +1321,15 @@ function updateProviderListNow() {
   providers.forEach((p, i) => {
     const div = document.createElement("div");
     div.className = "provider-entry";
+    const compactPhone = String(p.phone || "").replace(/\D/g, "");
     div.dataset.searchText = normalizeProviderSearchText([
       p.companyName,
       p.raisonSociale,
       p.contactName,
       p.firstName,
-      p.email
+      p.email,
+      p.phone,
+      compactPhone
     ].filter(Boolean).join(" "));
  const zonesText =
   getProviderLocations(p).length
