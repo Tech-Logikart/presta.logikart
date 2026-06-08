@@ -238,7 +238,7 @@
 
 .provider-search__field:focus-within {
   border-color: #1677d2;
-  box-shadow: 0 0 0 3px rgba(22, 119, 210, 0.16);
+  box-shadow: none;
 }
 
 .provider-search__field span {
@@ -257,7 +257,25 @@
   background: transparent;
   border: 0;
   outline: 0;
+  box-shadow: none;
+  appearance: none;
+  -webkit-appearance: none;
   font-size: 14px;
+}
+
+.provider-search__field input:focus,
+.provider-search__field input:focus-visible {
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+}
+
+.provider-search__field input::-webkit-search-decoration,
+.provider-search__field input::-webkit-search-cancel-button,
+.provider-search__field input::-webkit-search-results-button,
+.provider-search__field input::-webkit-search-results-decoration {
+  display: none;
+  -webkit-appearance: none;
 }
 
 .provider-search-count {
