@@ -1247,11 +1247,69 @@ function loadProvidersFromState() {
 }
 
 // --- rendu immédiat (non débouncé) de la liste ---
+let providerListSearchQuery = "";
+
+function normalizeProviderSearchText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function filterProviderList(query = "") {
+  const container = document.getElementById("providerList");
+  if (!container) return;
+
+  providerListSearchQuery = query;
+  const normalizedQuery = normalizeProviderSearchText(query);
+  const entries = Array.from(container.querySelectorAll(".provider-entry"));
+  let visibleCount = 0;
+
+  entries.forEach(entry => {
+    const matches = !normalizedQuery || entry.dataset.searchText.includes(normalizedQuery);
+    entry.hidden = !matches;
+    if (matches) visibleCount++;
+  });
+
+  const count = container.querySelector(".provider-search-count");
+  if (count) {
+    count.textContent = normalizedQuery
+      ? `${visibleCount} résultat${visibleCount > 1 ? "s" : ""}`
+      : `${entries.length} prestataire${entries.length > 1 ? "s" : ""}`;
+  }
+
+  const empty = container.querySelector(".provider-search-empty");
+  if (empty) empty.hidden = visibleCount !== 0;
+}
+
 function updateProviderListNow() {
   const container = document.getElementById("providerList");
   if (!container) return;
 
   container.innerHTML = "";
+  const searchBar = document.createElement("div");
+  searchBar.className = "provider-search";
+  searchBar.innerHTML = `
+    <label for="providerSearchInput">Rechercher un prestataire</label>
+    <div class="provider-search__field">
+      <span aria-hidden="true">⌕</span>
+      <input
+        id="providerSearchInput"
+        type="search"
+        placeholder="Société, nom, prénom ou email"
+        autocomplete="off"
+        value="${providerListSearchQuery.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"
+      />
+    </div>
+    <div class="provider-search-count" aria-live="polite"></div>
+  `;
+  container.appendChild(searchBar);
+
+  const searchInput = searchBar.querySelector("#providerSearchInput");
+  searchInput?.addEventListener("input", event => filterProviderList(event.target.value));
+
   const providers = getProviders()
   .sort((a, b) =>
     (a.companyName || "").localeCompare(
@@ -1263,6 +1321,13 @@ function updateProviderListNow() {
   providers.forEach((p, i) => {
     const div = document.createElement("div");
     div.className = "provider-entry";
+    div.dataset.searchText = normalizeProviderSearchText([
+      p.companyName,
+      p.raisonSociale,
+      p.contactName,
+      p.firstName,
+      p.email
+    ].filter(Boolean).join(" "));
  const zonesText =
   getProviderLocations(p).length
     ? getProviderLocations(p).map(location => location.ville || location.adresse).filter(Boolean).join(", ")
@@ -1284,6 +1349,14 @@ div.innerHTML = `
     `;
     container.appendChild(div);
   });
+
+  const empty = document.createElement("p");
+  empty.className = "provider-search-empty";
+  empty.textContent = "Aucun prestataire ne correspond à cette recherche.";
+  empty.hidden = true;
+  container.appendChild(empty);
+
+  filterProviderList(providerListSearchQuery);
   
   updateTechnicianCounter();
 }
@@ -1956,6 +2029,13 @@ function toggleProviderList() {
   if (isHidden) {
     list.style.display = "block";
     updateProviderListNow(); // 🔥 FORCER affichage immédiat
+    requestAnimationFrame(() => {
+      const input = document.getElementById("providerSearchInput");
+      if (input) {
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      }
+    });
   } else {
     list.style.display = "none";
   }
