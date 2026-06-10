@@ -1947,7 +1947,7 @@ async function generatePDF() {
   try {
     await html2pdf().set({
       margin: 0,
-      filename: "rapport_intervention_LOGIKART.pdf",
+      filename: "Rapport_intervention_LOGIKART.pdf",
       image: { type: "jpeg", quality: 0.98 },
       html2canvas: {
         scale: 2,
