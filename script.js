@@ -1732,6 +1732,8 @@ function exportItineraryToPDF() {
 
 // ----------------- Rapport d’intervention (impression & PDF robustes) -----------------
 function buildReportHTML(values) {
+  const tasks = Array.isArray(values.tasks) ? values.tasks : [];
+  const interventionDateTime = [values.date, values.interventionTime].filter(Boolean).join(" - ");
   return `
     <div style="width:100%; display:flex; justify-content:center; background:#fff;">
      <div style="
@@ -1747,10 +1749,22 @@ function buildReportHTML(values) {
         <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #004080; padding-bottom:10px;">
           <img src="logikart-logo.png" alt="LOGIKART" style="height:50px;">
           <h2 style="text-align:center; flex-grow:1; color:#004080; margin:0;">Rapport d’intervention</h2>
-          <div style="text-align:right; font-size:12px;">${values.date || ""}</div>
+          <div style="text-align:right; font-size:12px;">${interventionDateTime}</div>
         </div>
 
 <div style="margin-top:20px; display:grid; gap:12px;">
+
+  <!-- Date et heure d'intervention -->
+  <div style="border:1px solid #cfcfcf; border-radius:8px; padding:12px; display:flex; gap:16px; justify-content:space-between;">
+    <div style="width:48%;">
+      <div style="font-weight:700; margin-bottom:6px;">Date d’intervention :</div>
+      <div style="min-height:20px;">${values.date || ""}</div>
+    </div>
+    <div style="width:48%;">
+      <div style="font-weight:700; margin-bottom:6px;">Heure d’intervention :</div>
+      <div style="min-height:20px;">${values.interventionTime || ""}</div>
+    </div>
+  </div>
 
   <!-- Ticket -->
   <div style="border:1px solid #cfcfcf; border-radius:8px; padding:12px;">
@@ -1772,7 +1786,7 @@ function buildReportHTML(values) {
 
 <div style="border:1px solid #cfcfcf; border-radius:8px; padding:12px;">
   <div style="font-weight:700; margin-bottom:8px;">Travail à faire</div>
-  ${values.tasks.map(task => `
+  ${tasks.map(task => `
     <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
       <div>${task.text || ""}</div>
       <div style="border:1px solid #000; width:14px; height:14px; text-align:center;">
@@ -1842,9 +1856,13 @@ function printReport() {
   const values = {
     ticket: get("ticket")?.value,
     date: get("interventionDate")?.value,
+    interventionTime: get("interventionTime")?.value,
     site: get("siteAddress")?.value,
     tech: get("technician")?.value,
-    todo: get("todo")?.value,
+    tasks: Array.from(document.querySelectorAll(".taskInput")).map((input, i) => ({
+      text: input.value,
+      done: document.querySelectorAll(".taskCheck")[i]?.checked || false
+    })),
     done: get("done")?.value,
     start: get("start")?.value,
     end: get("end")?.value,
@@ -1897,6 +1915,7 @@ async function generatePDF() {
   const values = {
     ticket: get("ticket")?.value,
     date: get("interventionDate")?.value,
+    interventionTime: get("interventionTime")?.value,
     site: get("siteAddress")?.value,
     tech: get("technician")?.value,
     tasks: tasks,
@@ -1947,7 +1966,7 @@ async function generatePDF() {
   try {
     await html2pdf().set({
       margin: 0,
-      filename: "Rapport_intervention_LOGIKART.pdf",
+      filename: "rapport_intervention_LOGIKART.pdf",
       image: { type: "jpeg", quality: 0.98 },
       html2canvas: {
         scale: 2,
