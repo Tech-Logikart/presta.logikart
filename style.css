@@ -278,6 +278,12 @@
   -webkit-appearance: none;
 }
 
+@media (max-width: 640px) {
+  .report-date-time-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .provider-search-count {
   min-height: 16px;
   margin-top: 5px;
@@ -787,6 +793,18 @@ button:focus-visible,
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface-soft);
+}
+
+.report-date-time-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(170px, 0.45fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.report-date-time-row > div {
+  display: grid;
+  gap: 6px;
 }
 
 #taskList {
