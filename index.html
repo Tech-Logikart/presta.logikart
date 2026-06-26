@@ -140,8 +140,16 @@
         <h2>Rapport d’intervention LOGIKART</h2>
         <label>Numéro de ticket :</label>
         <input type="text" name="ticket" required />
-        <label>Date d’intervention :</label>
-        <input type="date" name="interventionDate" required />
+        <div class="report-date-time-row">
+          <div>
+            <label>Date d’intervention :</label>
+            <input type="date" name="interventionDate" required />
+          </div>
+          <div>
+            <label>Heure d’intervention :</label>
+            <input type="time" name="interventionTime" required />
+          </div>
+        </div>
         <label>Adresse du site :</label>
         <input type="text" name="siteAddress" required />
         <label>Nom du technicien :</label>
