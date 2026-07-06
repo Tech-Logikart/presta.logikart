@@ -61,7 +61,7 @@
         <input type="text" id="cityInput" placeholder="Ville ou adresse" />
       </div>
       <button class="btn btn-primary" onclick="handleSearch()">Rechercher</button>
-      <button class="btn btn-secondary" onclick="addProvider()">Ajouter un prestataire</button>
+      <button id="addProviderButton" class="btn btn-secondary" onclick="addProvider()">Ajouter un prestataire</button>
       <div id="searchResult" class="search-result" aria-live="polite"></div>
     </section>
   </header>
@@ -71,12 +71,16 @@
   <div id="menuDropdown">
     <ul>
       <li onclick="toggleProviderList()">📋 Prestataires</li>
-      <li onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
-      <li onclick="openReportForm()">📝 Imprimer rapport d’intervention</li>
+      <li data-permission="routes" onclick="openItineraryTool()">🧭 Calculer un itinéraire</li>
+      <li data-permission="reports" onclick="openReportForm()">📝 Imprimer rapport d’intervention</li>
+      <li id="usersMenuItem" class="admin-only" onclick="openUserManagement()">👥 Utilisateurs et droits</li>
       <li class="divider"></li>
-      <li onclick="exportProviders('json')">⬇️ Exporter (JSON)</li>
-      <li onclick="exportProviders('csv')">⬇️ Exporter (CSV)</li>
-      <li onclick="openImportModal()">⬆️ Importer</li>
+      <li data-permission="importsExports" onclick="exportProviders('json')">⬇️ Exporter (JSON)</li>
+      <li data-permission="importsExports" onclick="exportProviders('csv')">⬇️ Exporter (CSV)</li>
+      <li data-permission="importsExports" onclick="openImportModal()">⬆️ Importer</li>
+      <li class="divider"></li>
+      <li id="sessionUserLabel" class="menu-user-label"></li>
+      <li onclick="logoutUser()">↪ Déconnexion</li>
     </ul>
   </div>
 
@@ -89,6 +93,84 @@
 
   <!-- Liste des prestataires -->
   <aside id="providerList"></aside>
+
+  <!-- ===== Authentification ===== -->
+  <div id="authOverlay" class="auth-overlay" aria-hidden="false">
+    <section class="auth-card" aria-labelledby="authTitle">
+      <img src="logikart-logo.png" alt="LOGIKART" class="auth-logo" />
+      <h1 id="authTitle">Connexion LOGIKART</h1>
+      <p class="auth-subtitle">Accès réservé aux utilisateurs autorisés</p>
+
+      <form id="loginForm" class="auth-form">
+        <label for="loginIdentifier">Login</label>
+        <input id="loginIdentifier" name="login" type="text" autocomplete="username" required />
+        <label for="loginPassword">Mot de passe</label>
+        <input id="loginPassword" name="password" type="password" autocomplete="current-password" required />
+        <p id="loginMessage" class="form-message" role="alert"></p>
+        <button type="submit" class="btn btn-primary">Se connecter</button>
+      </form>
+
+      <button id="showBootstrapButton" type="button" class="auth-link">Créer le premier compte administrateur</button>
+
+      <form id="bootstrapAdminForm" class="auth-form" hidden>
+        <h2>Compte administrateur initial</h2>
+        <div class="form-grid form-grid--two">
+          <label>Login<input name="login" type="text" autocomplete="username" required /></label>
+          <label>Mot de passe<input name="password" type="password" autocomplete="new-password" minlength="8" required /></label>
+          <label>Nom<input name="lastName" type="text" required /></label>
+          <label>Prénom<input name="firstName" type="text" required /></label>
+          <label>Adresse email<input name="email" type="email" required /></label>
+          <label>Téléphone<input name="phone" type="tel" required /></label>
+        </div>
+        <p id="bootstrapMessage" class="form-message" role="alert"></p>
+        <div class="form-buttons">
+          <button type="submit">Créer mon compte</button>
+          <button id="cancelBootstrapButton" type="button">Annuler</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <!-- ===== Gestion des utilisateurs ===== -->
+  <div id="userManagementModal" class="modal modal--users">
+    <div class="modal-content user-management-card">
+      <button type="button" class="close modal-close-button" onclick="closeUserManagement()" aria-label="Fermer">×</button>
+      <h2>Utilisateurs et droits</h2>
+      <p class="modal-intro">Créez les accès et choisissez les fonctionnalités autorisées.</p>
+
+      <form id="userAccountForm" class="user-account-form">
+        <input type="hidden" name="uid" />
+        <div class="form-grid form-grid--two">
+          <label>Login<input name="login" type="text" autocomplete="off" required /></label>
+          <label>Mot de passe<input name="password" type="password" autocomplete="new-password" minlength="8" /></label>
+          <label>Nom<input name="lastName" type="text" required /></label>
+          <label>Prénom<input name="firstName" type="text" required /></label>
+          <label>Adresse email<input name="email" type="email" required /></label>
+          <label>Téléphone<input name="phone" type="tel" required /></label>
+          <label>Rôle
+            <select name="role">
+              <option value="user">Utilisateur</option>
+              <option value="admin">Administrateur</option>
+            </select>
+          </label>
+          <label class="toggle-label"><input name="active" type="checkbox" checked /> Compte actif</label>
+        </div>
+        <fieldset class="permissions-fieldset">
+          <legend>Droits</legend>
+          <label><input type="checkbox" name="manageProviders" /> Ajouter, modifier et supprimer les prestataires</label>
+          <label><input type="checkbox" name="reports" checked /> Rapports d’intervention</label>
+          <label><input type="checkbox" name="routes" checked /> Calcul d’itinéraire</label>
+          <label><input type="checkbox" name="importsExports" /> Import et export</label>
+        </fieldset>
+        <p id="userAccountMessage" class="form-message" role="alert"></p>
+        <div class="form-buttons">
+          <button type="submit">Enregistrer l’utilisateur</button>
+          <button type="button" onclick="resetUserAccountForm()">Nouveau</button>
+        </div>
+      </form>
+      <div id="userAccountsList" class="user-accounts-list"></div>
+    </div>
+  </div>
 
   <!-- ===== Modal Prestataire ===== -->
   <div id="providerFormSection" class="modal-overlay">
@@ -232,7 +314,7 @@
   <!-- (Optionnel) MarkerCluster JS -->
   <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
 
-  <!-- Initialisation Firebase + Auth anonyme -->
+  <!-- Initialisation Firebase. La connexion est pilotée par script.js. -->
   <script>
     const firebaseConfig = {
       apiKey: "AIzaSyA8AcMkDBMFrFkSyUgmTAKx4TAWNXlOJSg",
@@ -248,22 +330,8 @@
     // Exposé pour script.js
     window.db = db;
 
-    // Promise d’auth anonyme utilisée par script.js
-    window.authReady = (async () => {
-      try {
-        if (auth.setPersistence) {
-          await auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
-        }
-      } catch (e) {
-        console.warn("[Auth] setPersistence:", e?.message || e);
-      }
-      try {
-        await auth.signInAnonymously();
-        console.log("[Auth] Connecté anonymement");
-      } catch (e) {
-        console.warn("[Auth] Echec connexion anonyme:", e);
-      }
-    })();
+    window.auth = auth;
+    window.authReady = new Promise(resolve => { window.resolveAuthReady = resolve; });
   </script>
 
   <!-- PDF & rendu de carte (pour itinéraire PDF) -->
