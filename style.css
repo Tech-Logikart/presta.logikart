@@ -284,6 +284,274 @@
   }
 }
 
+/* ===== Authentification et gestion des utilisateurs ===== */
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  overflow-y: auto;
+  background: rgba(5, 25, 48, 0.78);
+  backdrop-filter: blur(10px);
+}
+
+.auth-card {
+  width: min(520px, 100%);
+  padding: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(3, 21, 41, 0.28);
+}
+
+.auth-logo {
+  display: block;
+  width: 54px;
+  height: 54px;
+  margin: 0 auto 10px;
+  object-fit: contain;
+}
+
+.auth-card h1,
+.auth-card h2 {
+  margin: 0 0 6px;
+  color: #083b6d;
+  text-align: center;
+  letter-spacing: 0;
+}
+
+.auth-card h1 { font-size: 24px; }
+.auth-card h2 { font-size: 18px; }
+
+.auth-subtitle,
+.modal-intro {
+  margin: 0 0 18px;
+  color: #607086;
+  text-align: center;
+}
+
+.auth-form {
+  display: grid;
+  gap: 10px;
+}
+
+.auth-form label,
+.form-grid label {
+  display: grid;
+  gap: 5px;
+  color: #24354a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.auth-form input,
+.user-account-form input,
+.user-account-form select {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid #cbd7e5;
+  border-radius: 6px;
+  background: #fff;
+  color: #172337;
+  font: inherit;
+}
+
+.auth-form input:focus,
+.user-account-form input:focus,
+.user-account-form select:focus {
+  border-color: #1976d2;
+  outline: 3px solid rgba(25, 118, 210, 0.14);
+}
+
+.auth-link {
+  display: block;
+  margin: 14px auto 0;
+  border: 0;
+  background: transparent;
+  color: #0b63ad;
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.form-message {
+  min-height: 18px;
+  margin: 2px 0;
+  color: #b42318;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.form-message.success { color: #087a55; }
+
+.form-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.form-grid--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.modal--users {
+  z-index: 90000;
+  align-items: flex-start;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.user-management-card {
+  position: relative;
+  width: min(980px, 100%);
+  max-height: none;
+  padding: 24px;
+}
+
+.modal-close-button {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 6px;
+  background: #eef3f8;
+  color: #334155;
+  cursor: pointer;
+}
+
+.user-account-form {
+  padding: 16px;
+  border: 1px solid #d8e2ee;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.toggle-label {
+  display: flex !important;
+  grid-auto-flow: column;
+  justify-content: start;
+  align-items: center;
+  align-self: end;
+  min-height: 40px;
+}
+
+.toggle-label input,
+.permissions-fieldset input {
+  width: 18px;
+  min-height: 18px;
+  height: 18px;
+}
+
+.permissions-fieldset {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid #ccd8e6;
+  border-radius: 6px;
+}
+
+.permissions-fieldset legend {
+  padding: 0 6px;
+  color: #083b6d;
+  font-weight: 800;
+}
+
+.permissions-fieldset label {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: #334155;
+  font-size: 13px;
+}
+
+.user-accounts-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.user-account-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid #d8e2ee;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.user-account-card.is-disabled { opacity: 0.58; }
+
+.user-account-card > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.user-account-card strong { color: #172337; }
+.user-account-card span,
+.user-account-card small { color: #607086; overflow-wrap: anywhere; }
+
+.user-account-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.user-account-actions button {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: #1476d4;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.user-account-actions .danger-button { background: #b42318; }
+
+.role-badge {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #e7f2ff;
+  color: #07599d !important;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.menu-user-label {
+  color: #607086;
+  font-size: 11px;
+  pointer-events: none;
+}
+
+[hidden] { display: none !important; }
+
+@media (max-width: 640px) {
+  .auth-card,
+  .user-management-card { padding: 18px; }
+
+  .form-grid--two,
+  .permissions-fieldset { grid-template-columns: 1fr; }
+
+  .user-account-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .user-account-actions { justify-content: flex-start; }
+}
+
 .provider-search-count {
   min-height: 16px;
   margin-top: 5px;
