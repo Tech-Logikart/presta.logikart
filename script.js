@@ -134,6 +134,7 @@ let currentUserProfile = null;
 let authResolved = false;
 let authBootStarted = false;
 let bootstrapInProgress = false;
+let bootstrapAvailable = false;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -243,11 +244,47 @@ function hideAuthOverlay() {
   }
 }
 
+async function refreshBootstrapAvailability() {
+  const button = document.getElementById("showBootstrapButton");
+  const loginForm = document.getElementById("loginForm");
+  const bootstrapForm = document.getElementById("bootstrapAdminForm");
+
+  // Fermé par défaut : le lien n'apparaît qu'après confirmation Firestore.
+  bootstrapAvailable = false;
+  if (button) button.hidden = true;
+
+  try {
+    const snapshot = await db.collection("system").doc("bootstrap").get();
+    bootstrapAvailable = !snapshot.exists;
+
+    if (snapshot.exists) {
+      if (bootstrapForm) bootstrapForm.hidden = true;
+      if (loginForm) loginForm.hidden = false;
+    }
+
+    if (button) button.hidden = !bootstrapAvailable;
+    return bootstrapAvailable;
+  } catch (error) {
+    console.warn("[Auth] Vérification du bootstrap impossible :", error?.message || error);
+    // En cas d'erreur réseau ou de règles, on ne rend jamais la création accessible.
+    if (bootstrapForm) bootstrapForm.hidden = true;
+    if (loginForm) loginForm.hidden = false;
+    return false;
+  }
+}
+
 async function bootstrapAdmin(form) {
   bootstrapInProgress = true;
   const values = Object.fromEntries(new FormData(form));
   let user = null;
+  let bootstrapCommitted = false;
   try {
+    const snapshot = await db.collection("system").doc("bootstrap").get();
+    if (snapshot.exists) {
+      bootstrapAvailable = false;
+      throw new Error("Le premier compte administrateur a déjà été créé.");
+    }
+
     const credentials = await auth.createUserWithEmailAndPassword(loginToAuthEmail(values.login), values.password);
     user = credentials.user;
     const profile = {
@@ -266,14 +303,20 @@ async function bootstrapAdmin(form) {
     batch.set(db.collection("users").doc(user.uid), profile);
     batch.set(db.collection("system").doc("bootstrap"), { adminUid: user.uid, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
     await batch.commit();
-    await loadCurrentUserProfile(user);
-    if (!authResolved && window.resolveAuthReady) {
-      authResolved = true;
-      window.resolveAuthReady(user);
-    }
-    hideAuthOverlay();
+    bootstrapCommitted = true;
+    bootstrapAvailable = false;
+    await auth.signOut();
+    currentUserProfile = null;
+    form.reset();
+    document.getElementById("bootstrapAdminForm").hidden = true;
+    document.getElementById("loginForm").hidden = false;
+    document.getElementById("showBootstrapButton").hidden = true;
+    setFormMessage("bootstrapMessage");
+    setFormMessage("loginMessage", "Compte administrateur créé. Vous pouvez maintenant vous connecter.", "success");
+    showAuthOverlay();
   } catch (error) {
-    if (user) await user.delete().catch(() => {});
+    if (user && !bootstrapCommitted) await user.delete().catch(() => {});
+    await refreshBootstrapAvailability();
     throw error;
   } finally {
     bootstrapInProgress = false;
@@ -287,15 +330,23 @@ function setupAuthenticationUI() {
 
   const loginForm = document.getElementById("loginForm");
   const bootstrapForm = document.getElementById("bootstrapAdminForm");
-  document.getElementById("showBootstrapButton")?.addEventListener("click", () => {
+  const bootstrapButton = document.getElementById("showBootstrapButton");
+  refreshBootstrapAvailability();
+
+  bootstrapButton?.addEventListener("click", async () => {
+    const available = await refreshBootstrapAvailability();
+    if (!available) {
+      setFormMessage("loginMessage", "Le premier compte administrateur a déjà été créé.");
+      return;
+    }
     loginForm.hidden = true;
     bootstrapForm.hidden = false;
-    document.getElementById("showBootstrapButton").hidden = true;
+    bootstrapButton.hidden = true;
   });
   document.getElementById("cancelBootstrapButton")?.addEventListener("click", () => {
     bootstrapForm.hidden = true;
     loginForm.hidden = false;
-    document.getElementById("showBootstrapButton").hidden = false;
+    refreshBootstrapAvailability();
   });
 
   loginForm?.addEventListener("submit", async event => {
@@ -314,9 +365,11 @@ function setupAuthenticationUI() {
     setFormMessage("bootstrapMessage", "Création du compte…", "success");
     try {
       await bootstrapAdmin(bootstrapForm);
-      setFormMessage("bootstrapMessage", "Compte administrateur créé.", "success");
     } catch (error) {
       setFormMessage("bootstrapMessage", authErrorMessage(error));
+      if (error?.message === "Le premier compte administrateur a déjà été créé.") {
+        setFormMessage("loginMessage", error.message);
+      }
     }
   });
 
