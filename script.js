@@ -123,8 +123,223 @@ window.addEventListener('unhandledrejection', (event) => {
   }
 });
 
-// ----------------- Auth anonyme (fournie par index.html) -----------------
-async function ensureAuth() { try { if (window.authReady) await window.authReady; } catch {} }
+// ----------------- Authentification et autorisations -----------------
+const DEFAULT_PERMISSIONS = Object.freeze({
+  manageProviders: false,
+  reports: true,
+  routes: true,
+  importsExports: false
+});
+let currentUserProfile = null;
+let authResolved = false;
+let authBootStarted = false;
+let bootstrapInProgress = false;
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function normalizeLogin(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9._-]/g, "");
+}
+
+function loginToAuthEmail(login) {
+  const normalized = normalizeLogin(login);
+  if (!normalized) throw new Error("Login invalide.");
+  return `${normalized}@lgk-presta.local`;
+}
+
+function authErrorMessage(error) {
+  const code = error?.code || "";
+  if (code.includes("invalid-login-credentials") || code.includes("wrong-password") || code.includes("user-not-found")) return "Login ou mot de passe incorrect.";
+  if (code.includes("email-already-in-use")) return "Ce login existe déjà.";
+  if (code.includes("weak-password")) return "Le mot de passe doit contenir au moins 8 caractères.";
+  if (code.includes("permission-denied")) return "Action refusée par les règles de sécurité Firebase.";
+  return error?.message || "Une erreur est survenue.";
+}
+
+function setFormMessage(elementId, message = "", type = "error") {
+  const element = document.getElementById(elementId);
+  if (!element) return;
+  element.textContent = message;
+  element.classList.toggle("success", type === "success");
+}
+
+function isAdmin() {
+  return currentUserProfile?.role === "admin";
+}
+
+function can(permission) {
+  return isAdmin() || currentUserProfile?.permissions?.[permission] === true;
+}
+
+function requirePermission(permission, message = "Vous n’avez pas les droits nécessaires.") {
+  if (can(permission)) return true;
+  alert(message);
+  return false;
+}
+
+function applyUserPermissions() {
+  document.body.classList.toggle("is-admin", isAdmin());
+  document.querySelectorAll(".admin-only").forEach(el => { el.hidden = !isAdmin(); });
+  document.querySelectorAll("[data-permission]").forEach(el => {
+    el.hidden = !can(el.dataset.permission);
+  });
+  const addButton = document.getElementById("addProviderButton");
+  if (addButton) addButton.hidden = !can("manageProviders");
+  const label = document.getElementById("sessionUserLabel");
+  if (label) {
+    const name = [currentUserProfile?.firstName, currentUserProfile?.lastName].filter(Boolean).join(" ");
+    label.textContent = name ? `Connecté : ${name}` : "Utilisateur connecté";
+  }
+}
+
+async function loadCurrentUserProfile(user) {
+  const snap = await db.collection("users").doc(user.uid).get();
+  if (!snap.exists) throw new Error("Compte sans profil d’autorisation. Contactez un administrateur.");
+  const profile = { uid: user.uid, ...snap.data() };
+  if (profile.active === false) throw new Error("Ce compte est désactivé.");
+  profile.permissions = { ...DEFAULT_PERMISSIONS, ...(profile.permissions || {}) };
+  currentUserProfile = profile;
+  window.currentUserProfile = profile;
+  applyUserPermissions();
+  return profile;
+}
+
+async function ensureAuth() {
+  if (window.authReady) await window.authReady;
+  if (!auth.currentUser || !currentUserProfile) throw new Error("Authentification requise.");
+  return auth.currentUser;
+}
+
+async function logoutUser() {
+  try { await auth.signOut(); } finally { window.location.reload(); }
+}
+
+function showAuthOverlay(message = "") {
+  const overlay = document.getElementById("authOverlay");
+  if (overlay) {
+    overlay.style.display = "grid";
+    overlay.setAttribute("aria-hidden", "false");
+  }
+  if (message) setFormMessage("loginMessage", message);
+}
+
+function hideAuthOverlay() {
+  const overlay = document.getElementById("authOverlay");
+  if (overlay) {
+    overlay.style.display = "none";
+    overlay.setAttribute("aria-hidden", "true");
+  }
+}
+
+async function bootstrapAdmin(form) {
+  bootstrapInProgress = true;
+  const values = Object.fromEntries(new FormData(form));
+  let user = null;
+  try {
+    const credentials = await auth.createUserWithEmailAndPassword(loginToAuthEmail(values.login), values.password);
+    user = credentials.user;
+    const profile = {
+    login: normalizeLogin(values.login),
+    firstName: values.firstName.trim(),
+    lastName: values.lastName.trim(),
+    email: values.email.trim(),
+    phone: values.phone.trim(),
+    role: "admin",
+    active: true,
+    permissions: { manageProviders: true, reports: true, routes: true, importsExports: true },
+    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    createdBy: user.uid
+    };
+    const batch = db.batch();
+    batch.set(db.collection("users").doc(user.uid), profile);
+    batch.set(db.collection("system").doc("bootstrap"), { adminUid: user.uid, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+    await batch.commit();
+    await loadCurrentUserProfile(user);
+    if (!authResolved && window.resolveAuthReady) {
+      authResolved = true;
+      window.resolveAuthReady(user);
+    }
+    hideAuthOverlay();
+  } catch (error) {
+    if (user) await user.delete().catch(() => {});
+    throw error;
+  } finally {
+    bootstrapInProgress = false;
+  }
+}
+
+function setupAuthenticationUI() {
+  if (authBootStarted) return;
+  authBootStarted = true;
+  auth.setPersistence(firebase.auth.Auth.Persistence.NONE).catch(error => console.warn("[Auth] Persistance:", error));
+
+  const loginForm = document.getElementById("loginForm");
+  const bootstrapForm = document.getElementById("bootstrapAdminForm");
+  document.getElementById("showBootstrapButton")?.addEventListener("click", () => {
+    loginForm.hidden = true;
+    bootstrapForm.hidden = false;
+    document.getElementById("showBootstrapButton").hidden = true;
+  });
+  document.getElementById("cancelBootstrapButton")?.addEventListener("click", () => {
+    bootstrapForm.hidden = true;
+    loginForm.hidden = false;
+    document.getElementById("showBootstrapButton").hidden = false;
+  });
+
+  loginForm?.addEventListener("submit", async event => {
+    event.preventDefault();
+    setFormMessage("loginMessage", "Connexion…", "success");
+    const data = new FormData(loginForm);
+    try {
+      await auth.signInWithEmailAndPassword(loginToAuthEmail(data.get("login")), data.get("password"));
+    } catch (error) {
+      setFormMessage("loginMessage", authErrorMessage(error));
+    }
+  });
+
+  bootstrapForm?.addEventListener("submit", async event => {
+    event.preventDefault();
+    setFormMessage("bootstrapMessage", "Création du compte…", "success");
+    try {
+      await bootstrapAdmin(bootstrapForm);
+      setFormMessage("bootstrapMessage", "Compte administrateur créé.", "success");
+    } catch (error) {
+      setFormMessage("bootstrapMessage", authErrorMessage(error));
+    }
+  });
+
+  auth.onAuthStateChanged(async user => {
+    if (bootstrapInProgress) return;
+    if (!user) {
+      currentUserProfile = null;
+      showAuthOverlay();
+      return;
+    }
+    try {
+      await loadCurrentUserProfile(user);
+      hideAuthOverlay();
+      if (!authResolved && window.resolveAuthReady) {
+        authResolved = true;
+        window.resolveAuthReady(user);
+      }
+    } catch (error) {
+      showAuthOverlay(authErrorMessage(error));
+      await auth.signOut().catch(() => {});
+    }
+  });
+}
 
 // ----------------- Firestore comme source commune -----------------
 const keyOf = (p) => (String(p.email || "").toLowerCase() + "|" + String(p.phone || ""));
@@ -331,7 +546,7 @@ function hasCompanyConflict(candidate, currentProvider = null) {
 
 async function cleanDuplicateProviders(rawList, promptUser = true) {
   const groups = duplicateProviderGroups(rawList);
-  if (!groups.length || !fireSync.online) return false;
+  if (!groups.length || !fireSync.online || !can("manageProviders")) return false;
   const duplicateCount = groups.reduce((sum, group) => sum + group.length - 1, 0);
   const shouldClean = !promptUser || confirm(`${duplicateCount} doublon(s) de prestataire détecté(s). Voulez-vous les fusionner automatiquement maintenant ?`);
   if (!shouldClean) return false;
@@ -874,6 +1089,7 @@ function setServiceAreas(areas = []) {
 
 // ----------------- Formulaire prestataire -----------------
 function addProvider() {
+  if (!requirePermission("manageProviders")) return;
   const modal = document.getElementById("providerFormSection");
   if (!modal) return console.error("#providerFormSection introuvable");
   clearProviderFormMessage();
@@ -1343,11 +1559,10 @@ div.innerHTML = `
   📧 ${p.email || '—'}<br>
   📞 ${p.phone || '—'}<br>
   💰 Tarif total HT : ${p.totalCost || "N/A"}${(p.lat!=null&&p.lon!=null)?'':' <em style="color:#a00">(géocodage manquant)</em>'}<br>
-      <div style="display:flex; gap:8px; margin-top:6px;">
+      ${can("manageProviders") ? `<div style="display:flex; gap:8px; margin-top:6px;">
         <button onclick='editProviderByKey(${JSON.stringify(p.id || keyOf(p))})'>✏️ Modifier</button>
         <button onclick='deleteProviderByKey(${JSON.stringify(p.id || keyOf(p))})'>🗑️ Supprimer</button>
-
-      </div>
+      </div>` : ""}
       <hr>
     `;
     container.appendChild(div);
@@ -1375,6 +1590,7 @@ function findProviderByKey(list, k) {
 }
 
 function editProviderByKey(k) {
+  if (!requirePermission("manageProviders")) return;
   const providers = getProviders();
   const p = findProviderByKey(providers, k);
   if (!p) return alert("Prestataire introuvable.");
@@ -1397,6 +1613,7 @@ function editProviderByKey(k) {
 }
 
 async function deleteProviderByKey(k) {
+  if (!requirePermission("manageProviders")) return;
   const providers = getProviders();
   const toDelete = findProviderByKey(providers, k);
   if (!toDelete) return alert("Prestataire introuvable.");
@@ -1418,6 +1635,7 @@ window.deleteProviderByKey = deleteProviderByKey;
 
 // ----------------- Export JSON/CSV -----------------
 function exportProviders(format = "json") {
+  if (!requirePermission("importsExports")) return;
   const providers = getProviders();
   if (!providers.length) { alert("Aucun prestataire à exporter."); return; }
 
@@ -1455,7 +1673,7 @@ function triggerDownload(blob, filename) {
 }
 
 // ----------------- Import JSON/CSV -> upsert Firestore -----------------
-function openImportModal() { const m = document.getElementById("importModal"); if (m) m.style.display = "flex"; }
+function openImportModal() { if (!requirePermission("importsExports")) return; const m = document.getElementById("importModal"); if (m) m.style.display = "flex"; }
 function closeImportModal() { const m = document.getElementById("importModal"); if (m) m.style.display = "none"; const i = document.getElementById("importFile"); if (i) i.value = ""; }
 
 function normalizeProvider(obj) {
@@ -1616,7 +1834,7 @@ async function handleImport() {
 }
 
 // ----------------- Itinéraire -----------------
-function openItineraryTool() { const m = document.getElementById("itineraryModal"); if (m) m.style.display = "flex"; document.getElementById("routeResult").innerHTML = ""; }
+function openItineraryTool() { if (!requirePermission("routes")) return; const m = document.getElementById("itineraryModal"); if (m) m.style.display = "flex"; document.getElementById("routeResult").innerHTML = ""; }
 function closeItineraryModal() { const m = document.getElementById("itineraryModal"); if (m) m.style.display = "none"; document.getElementById("itineraryForm").reset(); document.getElementById("extraDestinations").innerHTML = ""; }
 function addDestinationField() { const c = document.getElementById("extraDestinations"); const i = document.createElement("input"); i.type = "text"; i.placeholder = "Destination supplémentaire"; i.classList.add("extra-destination"); c.appendChild(i); }
 
@@ -1835,6 +2053,7 @@ function buildReportHTML(values) {
 }
 
 function openReportForm() {
+  if (!requirePermission("reports")) return;
   const modal = document.getElementById("reportModal");
   if (!modal) return;
   modal.style.display = "flex";
@@ -2000,8 +2219,173 @@ function populateTechnicianSuggestions() {
   });
 }
 
+// ----------------- Administration des utilisateurs -----------------
+function userPermissionsFromForm(form) {
+  return {
+    manageProviders: form.elements.manageProviders.checked,
+    reports: form.elements.reports.checked,
+    routes: form.elements.routes.checked,
+    importsExports: form.elements.importsExports.checked
+  };
+}
+
+function resetUserAccountForm() {
+  const form = document.getElementById("userAccountForm");
+  if (!form) return;
+  form.reset();
+  form.elements.uid.value = "";
+  form.elements.active.checked = true;
+  form.elements.reports.checked = true;
+  form.elements.routes.checked = true;
+  form.elements.password.required = true;
+  form.elements.login.readOnly = false;
+  setFormMessage("userAccountMessage");
+}
+
+async function openUserManagement() {
+  if (!isAdmin()) {
+    alert("Accès réservé aux administrateurs.");
+    return;
+  }
+  const modal = document.getElementById("userManagementModal");
+  if (modal) modal.style.display = "flex";
+  resetUserAccountForm();
+  await loadUserAccounts();
+}
+
+function closeUserManagement() {
+  const modal = document.getElementById("userManagementModal");
+  if (modal) modal.style.display = "none";
+}
+
+async function loadUserAccounts() {
+  if (!isAdmin()) return;
+  const container = document.getElementById("userAccountsList");
+  if (!container) return;
+  container.innerHTML = '<p class="loading-message">Chargement…</p>';
+  try {
+    const snapshot = await db.collection("users").orderBy("lastName").get();
+    const users = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
+    container.innerHTML = users.length ? users.map(user => `
+      <article class="user-account-card ${user.active === false ? "is-disabled" : ""}">
+        <div>
+          <strong>${escapeHtml([user.firstName, user.lastName].filter(Boolean).join(" "))}</strong>
+          <span>@${escapeHtml(user.login || "")}</span>
+          <small>${escapeHtml(user.email || "")} · ${escapeHtml(user.phone || "")}</small>
+        </div>
+        <div class="user-account-actions">
+          <span class="role-badge">${user.role === "admin" ? "Administrateur" : "Utilisateur"}</span>
+          <button type="button" onclick="editUserAccount('${user.uid}')">Modifier</button>
+          ${user.uid !== auth.currentUser?.uid ? `<button type="button" class="danger-button" onclick="toggleUserAccount('${user.uid}', ${user.active === false})">${user.active === false ? "Réactiver" : "Désactiver"}</button>` : ""}
+        </div>
+      </article>
+    `).join("") : '<p class="empty-message">Aucun utilisateur.</p>';
+  } catch (error) {
+    container.innerHTML = `<p class="form-message">${escapeHtml(authErrorMessage(error))}</p>`;
+  }
+}
+
+async function editUserAccount(uid) {
+  if (!isAdmin()) return;
+  const snapshot = await db.collection("users").doc(uid).get();
+  if (!snapshot.exists) return;
+  const user = snapshot.data();
+  const form = document.getElementById("userAccountForm");
+  form.elements.uid.value = uid;
+  form.elements.login.value = user.login || "";
+  form.elements.login.readOnly = true;
+  form.elements.password.value = "";
+  form.elements.password.required = false;
+  form.elements.password.placeholder = "Inchangé lors d’une modification";
+  form.elements.lastName.value = user.lastName || "";
+  form.elements.firstName.value = user.firstName || "";
+  form.elements.email.value = user.email || "";
+  form.elements.phone.value = user.phone || "";
+  form.elements.role.value = user.role || "user";
+  form.elements.active.checked = user.active !== false;
+  const permissions = { ...DEFAULT_PERMISSIONS, ...(user.permissions || {}) };
+  Object.keys(DEFAULT_PERMISSIONS).forEach(key => { form.elements[key].checked = permissions[key]; });
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function toggleUserAccount(uid, activate) {
+  if (!isAdmin() || uid === auth.currentUser?.uid) return;
+  await db.collection("users").doc(uid).update({ active: activate, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: auth.currentUser.uid });
+  await loadUserAccounts();
+}
+
+async function createManagedUser(values, permissions) {
+  let secondaryApp;
+  let secondaryAuth;
+  try {
+    secondaryApp = firebase.apps.find(app => app.name === "userCreator") || firebase.initializeApp(firebaseConfig, "userCreator");
+    secondaryAuth = secondaryApp.auth();
+    await secondaryAuth.setPersistence(firebase.auth.Auth.Persistence.NONE);
+    const credential = await secondaryAuth.createUserWithEmailAndPassword(loginToAuthEmail(values.login), values.password);
+    const uid = credential.user.uid;
+    try {
+      await db.collection("users").doc(uid).set({
+        login: normalizeLogin(values.login),
+        firstName: values.firstName.trim(),
+        lastName: values.lastName.trim(),
+        email: values.email.trim(),
+        phone: values.phone.trim(),
+        role: values.role === "admin" ? "admin" : "user",
+        active: values.active === "on",
+        permissions,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        createdBy: auth.currentUser.uid
+      });
+    } catch (error) {
+      await credential.user.delete().catch(() => {});
+      throw error;
+    }
+  } finally {
+    if (secondaryAuth) await secondaryAuth.signOut().catch(() => {});
+  }
+}
+
+async function saveUserAccount(event) {
+  event.preventDefault();
+  if (!isAdmin()) return;
+  const form = event.currentTarget;
+  const values = Object.fromEntries(new FormData(form));
+  const permissions = userPermissionsFromForm(form);
+  setFormMessage("userAccountMessage", "Enregistrement…", "success");
+  try {
+    if (values.uid) {
+      const update = {
+        firstName: values.firstName.trim(),
+        lastName: values.lastName.trim(),
+        email: values.email.trim(),
+        phone: values.phone.trim(),
+        role: values.role === "admin" ? "admin" : "user",
+        active: form.elements.active.checked,
+        permissions,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedBy: auth.currentUser.uid
+      };
+      if (values.uid === auth.currentUser.uid) {
+        update.active = true;
+        update.role = "admin";
+      }
+      await db.collection("users").doc(values.uid).update(update);
+    } else {
+      if (!values.password || values.password.length < 8) throw new Error("Le mot de passe doit contenir au moins 8 caractères.");
+      await createManagedUser(values, permissions);
+    }
+    setFormMessage("userAccountMessage", "Utilisateur enregistré.", "success");
+    resetUserAccountForm();
+    await loadUserAccounts();
+  } catch (error) {
+    setFormMessage("userAccountMessage", authErrorMessage(error));
+  }
+}
+
 // ----------------- Menu / init + Backfill coords -----------------
 document.addEventListener("DOMContentLoaded", async () => {
+  setupAuthenticationUI();
+  document.getElementById("userAccountForm")?.addEventListener("submit", saveUserAccount);
   // Forçage position burger en haut à droite (au cas où le CSS n'est pas chargé)
   const headerEl = document.querySelector('header');
   const burger = document.getElementById("burgerMenu");
@@ -2082,7 +2466,7 @@ function handleProviderListClickOutside(event) {
 
 // ----------------- Backfill coords manquantes (asynchrone) -----------------
 async function backfillMissingCoords() {
-  if (!fireSync.online) return;
+  if (!fireSync.online || !can("manageProviders")) return;
   const list = getProviders();
   let updated = 0;
   for (const p of list) {
