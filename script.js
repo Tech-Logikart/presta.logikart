@@ -244,31 +244,44 @@ function hideAuthOverlay() {
   }
 }
 
-async function refreshBootstrapAvailability() {
+function setCreateAdminButtonVisible(visible) {
   const button = document.getElementById("showBootstrapButton");
+  if (!button) return;
+  button.hidden = !visible;
+  button.style.display = visible ? "block" : "none";
+  console.log("Button visible:", button.offsetParent !== null);
+}
+
+async function refreshBootstrapAvailability() {
   const loginForm = document.getElementById("loginForm");
   const bootstrapForm = document.getElementById("bootstrapAdminForm");
 
   // Fermé par défaut : le lien n'apparaît qu'après confirmation Firestore.
   bootstrapAvailable = false;
-  if (button) button.hidden = true;
+  setCreateAdminButtonVisible(false);
 
   try {
-    const snapshot = await db.collection("system").doc("bootstrap").get();
-    bootstrapAvailable = !snapshot.exists;
+    console.log("Bootstrap project:", firebase.app().options.projectId, "path: system/bootstrap");
+    // Lecture serveur obligatoire : aucune ancienne valeur du cache ne doit
+    // pouvoir réafficher la création du premier administrateur.
+    const docSnap = await db.collection("system").doc("bootstrap").get({ source: "server" });
+    const bootstrapExists = docSnap.exists;
+    console.log("Bootstrap exists:", bootstrapExists);
+    bootstrapAvailable = !bootstrapExists;
 
-    if (snapshot.exists) {
+    if (bootstrapExists) {
       if (bootstrapForm) bootstrapForm.hidden = true;
       if (loginForm) loginForm.hidden = false;
     }
 
-    if (button) button.hidden = !bootstrapAvailable;
+    setCreateAdminButtonVisible(bootstrapAvailable);
     return bootstrapAvailable;
   } catch (error) {
     console.warn("[Auth] Vérification du bootstrap impossible :", error?.message || error);
     // En cas d'erreur réseau ou de règles, on ne rend jamais la création accessible.
     if (bootstrapForm) bootstrapForm.hidden = true;
     if (loginForm) loginForm.hidden = false;
+    setCreateAdminButtonVisible(false);
     return false;
   }
 }
@@ -279,7 +292,8 @@ async function bootstrapAdmin(form) {
   let user = null;
   let bootstrapCommitted = false;
   try {
-    const snapshot = await db.collection("system").doc("bootstrap").get();
+    const snapshot = await db.collection("system").doc("bootstrap").get({ source: "server" });
+    console.log("Bootstrap exists:", snapshot.exists);
     if (snapshot.exists) {
       bootstrapAvailable = false;
       throw new Error("Le premier compte administrateur a déjà été créé.");
@@ -310,7 +324,7 @@ async function bootstrapAdmin(form) {
     form.reset();
     document.getElementById("bootstrapAdminForm").hidden = true;
     document.getElementById("loginForm").hidden = false;
-    document.getElementById("showBootstrapButton").hidden = true;
+    setCreateAdminButtonVisible(false);
     setFormMessage("bootstrapMessage");
     setFormMessage("loginMessage", "Compte administrateur créé. Vous pouvez maintenant vous connecter.", "success");
     showAuthOverlay();
@@ -341,7 +355,7 @@ function setupAuthenticationUI() {
     }
     loginForm.hidden = true;
     bootstrapForm.hidden = false;
-    bootstrapButton.hidden = true;
+    setCreateAdminButtonVisible(false);
   });
   document.getElementById("cancelBootstrapButton")?.addEventListener("click", () => {
     bootstrapForm.hidden = true;
