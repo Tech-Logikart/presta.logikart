@@ -2306,7 +2306,32 @@ function resetUserAccountForm() {
   form.elements.routes.checked = true;
   form.elements.password.required = true;
   form.elements.login.readOnly = false;
+  form.elements.password.placeholder = "";
   setFormMessage("userAccountMessage");
+}
+
+function showUserListPage() {
+  const listView = document.getElementById("userListView");
+  const formView = document.getElementById("userFormView");
+  if (listView) listView.hidden = false;
+  if (formView) formView.hidden = true;
+  setFormMessage("userAccountMessage");
+}
+
+function showUserFormPage(title = "Nouvel utilisateur") {
+  const listView = document.getElementById("userListView");
+  const formView = document.getElementById("userFormView");
+  const titleEl = document.getElementById("userFormTitle");
+  if (titleEl) titleEl.textContent = title;
+  if (listView) listView.hidden = true;
+  if (formView) formView.hidden = false;
+  formView?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function openNewUserAccountPage() {
+  if (!isAdmin()) return;
+  resetUserAccountForm();
+  showUserFormPage("Nouvel utilisateur");
 }
 
 async function openUserManagement() {
@@ -2317,6 +2342,7 @@ async function openUserManagement() {
   const modal = document.getElementById("userManagementModal");
   if (modal) modal.style.display = "flex";
   resetUserAccountForm();
+  showUserListPage();
   await loadUserAccounts();
 }
 
@@ -2372,7 +2398,7 @@ async function editUserAccount(uid) {
   form.elements.active.checked = user.active !== false;
   const permissions = { ...DEFAULT_PERMISSIONS, ...(user.permissions || {}) };
   Object.keys(DEFAULT_PERMISSIONS).forEach(key => { form.elements[key].checked = permissions[key]; });
-  form.scrollIntoView({ behavior: "smooth", block: "start" });
+  showUserFormPage("Modifier l’utilisateur");
 }
 
 async function toggleUserAccount(uid, activate) {
@@ -2444,6 +2470,7 @@ async function saveUserAccount(event) {
     setFormMessage("userAccountMessage", "Utilisateur enregistré.", "success");
     resetUserAccountForm();
     await loadUserAccounts();
+    showUserListPage();
   } catch (error) {
     setFormMessage("userAccountMessage", authErrorMessage(error));
   }
