@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Carte des Prestataires</title>
 
-  <link rel="stylesheet" href="style.css?v=20260706-bootstrap-fix" />
+  <link rel="stylesheet" href="style.css?v=20260707-users-pages" />
   <link rel="icon" href="logikart-logo.png" />
 
   <!-- Leaflet CSS -->
@@ -135,40 +135,57 @@
   <div id="userManagementModal" class="modal modal--users">
     <div class="modal-content user-management-card">
       <button type="button" class="close modal-close-button" onclick="closeUserManagement()" aria-label="Fermer">×</button>
-      <h2>Utilisateurs et droits</h2>
-      <p class="modal-intro">Créez les accès et choisissez les fonctionnalités autorisées.</p>
+      <section id="userListView" class="user-management-view">
+        <div class="user-management-header">
+          <div>
+            <h2>Utilisateurs et droits</h2>
+            <p class="modal-intro">Consultez les comptes existants et leurs autorisations.</p>
+          </div>
+          <button type="button" class="btn btn-primary user-new-button" onclick="openNewUserAccountPage()">Nouvel utilisateur</button>
+        </div>
+        <div id="userAccountsList" class="user-accounts-list"></div>
+      </section>
 
-      <form id="userAccountForm" class="user-account-form">
-        <input type="hidden" name="uid" />
-        <div class="form-grid form-grid--two">
-          <label>Login<input name="login" type="text" autocomplete="off" required /></label>
-          <label>Mot de passe<input name="password" type="password" autocomplete="new-password" minlength="8" /></label>
-          <label>Nom<input name="lastName" type="text" required /></label>
-          <label>Prénom<input name="firstName" type="text" required /></label>
-          <label>Adresse email<input name="email" type="email" required /></label>
-          <label>Téléphone<input name="phone" type="tel" required /></label>
-          <label>Rôle
-            <select name="role">
-              <option value="user">Utilisateur</option>
-              <option value="admin">Administrateur</option>
-            </select>
-          </label>
-          <label class="toggle-label"><input name="active" type="checkbox" checked /> Compte actif</label>
+      <section id="userFormView" class="user-management-view" hidden>
+        <div class="user-management-header">
+          <div>
+            <h2 id="userFormTitle">Nouvel utilisateur</h2>
+            <p class="modal-intro">Renseignez les informations du compte et les droits associés.</p>
+          </div>
+          <button type="button" class="btn btn-secondary user-back-button" onclick="showUserListPage()">Retour à la liste</button>
         </div>
-        <fieldset class="permissions-fieldset">
-          <legend>Droits</legend>
-          <label><input type="checkbox" name="manageProviders" /> Ajouter, modifier et supprimer les prestataires</label>
-          <label><input type="checkbox" name="reports" checked /> Rapports d’intervention</label>
-          <label><input type="checkbox" name="routes" checked /> Calcul d’itinéraire</label>
-          <label><input type="checkbox" name="importsExports" /> Import et export</label>
-        </fieldset>
-        <p id="userAccountMessage" class="form-message" role="alert"></p>
-        <div class="form-buttons">
-          <button type="submit">Enregistrer l’utilisateur</button>
-          <button type="button" onclick="resetUserAccountForm()">Nouveau</button>
-        </div>
-      </form>
-      <div id="userAccountsList" class="user-accounts-list"></div>
+
+        <form id="userAccountForm" class="user-account-form">
+          <input type="hidden" name="uid" />
+          <div class="form-grid form-grid--two">
+            <label>Login<input name="login" type="text" autocomplete="off" required /></label>
+            <label>Mot de passe<input name="password" type="password" autocomplete="new-password" minlength="8" /></label>
+            <label>Nom<input name="lastName" type="text" required /></label>
+            <label>Prénom<input name="firstName" type="text" required /></label>
+            <label>Adresse email<input name="email" type="email" required /></label>
+            <label>Téléphone<input name="phone" type="tel" required /></label>
+            <label>Rôle
+              <select name="role">
+                <option value="user">Utilisateur</option>
+                <option value="admin">Administrateur</option>
+              </select>
+            </label>
+            <label class="toggle-label"><input name="active" type="checkbox" checked /> Compte actif</label>
+          </div>
+          <fieldset class="permissions-fieldset">
+            <legend>Droits / autorisations</legend>
+            <label><input type="checkbox" name="manageProviders" /> Ajouter, modifier et supprimer les prestataires</label>
+            <label><input type="checkbox" name="reports" checked /> Rapports d’intervention</label>
+            <label><input type="checkbox" name="routes" checked /> Calcul d’itinéraire</label>
+            <label><input type="checkbox" name="importsExports" /> Import et export</label>
+          </fieldset>
+          <p id="userAccountMessage" class="form-message" role="alert"></p>
+          <div class="form-buttons">
+            <button type="submit">Enregistrer</button>
+            <button type="button" onclick="showUserListPage()">Annuler</button>
+          </div>
+        </form>
+      </section>
     </div>
   </div>
 
@@ -340,7 +357,7 @@
   <script src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
 
   <!-- Script principal -->
-  <script src="script.js?v=20260706-bootstrap-fix"></script>
+  <script src="script.js?v=20260707-users-pages"></script>
 
   <!-- Gestion du burger (clic + clavier + fermeture extérieure) -->
   
