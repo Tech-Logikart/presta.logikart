@@ -2369,7 +2369,8 @@ async function loadUserAccounts() {
         <div class="user-account-actions">
           <span class="role-badge">${user.role === "admin" ? "Administrateur" : "Utilisateur"}</span>
           <button type="button" onclick="editUserAccount('${user.uid}')">Modifier</button>
-          ${user.uid !== auth.currentUser?.uid ? `<button type="button" class="danger-button" onclick="toggleUserAccount('${user.uid}', ${user.active === false})">${user.active === false ? "Réactiver" : "Désactiver"}</button>` : ""}
+          ${user.uid !== auth.currentUser?.uid ? `<button type="button" class="danger-button" onclick="toggleUserAccount('${user.uid}', ${user.active === false})">${user.active === false ? "Réactiver" : "Désactiver"}</button>
+          <button type="button" class="danger-button" onclick="deleteUserAccount('${user.uid}')">Supprimer</button>` : ""}
         </div>
       </article>
     `).join("") : '<p class="empty-message">Aucun utilisateur.</p>';
@@ -2405,6 +2406,35 @@ async function toggleUserAccount(uid, activate) {
   if (!isAdmin() || uid === auth.currentUser?.uid) return;
   await db.collection("users").doc(uid).update({ active: activate, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: auth.currentUser.uid });
   await loadUserAccounts();
+}
+
+async function deleteUserAccount(uid) {
+  if (!isAdmin()) {
+    alert("Accès réservé aux administrateurs.");
+    return;
+  }
+  if (uid === auth.currentUser?.uid) {
+    alert("Vous ne pouvez pas supprimer votre propre compte administrateur connecté.");
+    return;
+  }
+
+  const snapshot = await db.collection("users").doc(uid).get();
+  if (!snapshot.exists) {
+    alert("Utilisateur introuvable.");
+    await loadUserAccounts();
+    return;
+  }
+
+  const user = snapshot.data();
+  const displayName = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.login || user.email || "cet utilisateur";
+  if (!confirm(`Supprimer définitivement ${displayName} de la liste des utilisateurs ?`)) return;
+
+  try {
+    await db.collection("users").doc(uid).delete();
+    await loadUserAccounts();
+  } catch (error) {
+    alert(authErrorMessage(error));
+  }
 }
 
 async function createManagedUser(values, permissions) {
