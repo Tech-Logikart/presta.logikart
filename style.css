@@ -410,6 +410,29 @@
   padding: 24px;
 }
 
+.user-management-view {
+  display: grid;
+  gap: 18px;
+}
+
+.user-management-header {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding-right: 44px;
+}
+
+.user-management-header h2 {
+  margin-bottom: 4px;
+}
+
+.user-new-button,
+.user-back-button {
+  min-width: 160px;
+  white-space: nowrap;
+}
+
 .modal-close-button {
   position: absolute;
   top: 12px;
@@ -540,6 +563,16 @@
 @media (max-width: 640px) {
   .auth-card,
   .user-management-card { padding: 18px; }
+
+  .user-management-header {
+    flex-direction: column;
+    padding-right: 38px;
+  }
+
+  .user-new-button,
+  .user-back-button {
+    width: 100%;
+  }
 
   .form-grid--two,
   .permissions-fieldset { grid-template-columns: 1fr; }
