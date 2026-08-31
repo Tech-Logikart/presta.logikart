@@ -1,16 +1,15 @@
 // ======================= LOGIKART / script.js =======================
 // Carte Leaflet — vue Europe par défaut
 const map = L.map('map').setView([54, 15], 4);
-const baseMapLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-  attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-  subdomains: 'abcd',
-  maxZoom: 20
+const baseMapLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors',
+  maxZoom: 19
 }).addTo(map);
 let cartoFallbackApplied = false;
 baseMapLayer.on('tileerror', () => {
   if (cartoFallbackApplied) return;
   cartoFallbackApplied = true;
-  baseMapLayer.setUrl('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png');
+  baseMapLayer.setUrl('https://tile.openstreetmap.de/{z}/{x}/{y}.png');
 });
 
 // --- utilitaire debounce (retarde l'appel tant que ça "bouge") ---
